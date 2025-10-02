@@ -25,6 +25,9 @@ const CaptainHome = () => {
     const [currentRide, setCurrentRide] = useState(null)
     const [earnings, setEarnings] = useState({ today: 0, total: 0 })
     const [stats, setStats] = useState({ rides: 0, rating: 4.8 })
+    const [showChat, setShowChat] = useState(false)
+    const [messages, setMessages] = useState([])
+    const [newMessage, setNewMessage] = useState('')
     
     const { socket } = useContext(SocketContext)
     const { captain } = useContext(CaptainDataContext)
@@ -132,9 +135,15 @@ const CaptainHome = () => {
             setIncomingRide(null)
         })
 
+        // Listen for chat messages
+        socket.on('message', (data) => {
+            setMessages(prev => [...prev, data.message])
+        })
+
         return () => {
             socket.off('ride-request-to-captain')
             socket.off('ride-confirmed')
+            socket.off('message')
         }
     }, [socket, captain])
 
@@ -216,6 +225,21 @@ const CaptainHome = () => {
         } catch (error) {
             console.error('Logout error:', error)
         }
+    }
+
+    // Send message to user
+    const handleSendMessage = () => {
+        if (!newMessage.trim() || !currentRide) return
+        
+        const message = {
+            text: newMessage,
+            sender: 'captain',
+            timestamp: new Date().toISOString()
+        }
+        
+        socket.emit('message', { rideId: currentRide._id, message })
+        setMessages(prev => [...prev, message])
+        setNewMessage('')
     }
 
 
@@ -408,14 +432,93 @@ const CaptainHome = () => {
                 <div className='absolute bottom-72 left-4 right-4 z-30 bg-white rounded-2xl shadow-lg p-4'>
                     <div className='flex items-center justify-between mb-3'>
                         <h3 className='font-bold text-lg'>Current Ride</h3>
-                        <span className='px-3 py-1 bg-green-100 text-green-600 rounded-full text-sm font-medium'>
-                            In Progress
-                        </span>
+                        <div className='flex items-center gap-2'>
+                            <button
+                                onClick={() => setShowChat(!showChat)}
+                                className='px-3 py-1 bg-blue-100 text-blue-600 rounded-full text-sm font-medium hover:bg-blue-200'
+                            >
+                                <i className="ri-chat-3-line mr-1"></i>
+                                Chat
+                            </button>
+                            <span className='px-3 py-1 bg-green-100 text-green-600 rounded-full text-sm font-medium'>
+                                In Progress
+                            </span>
+                        </div>
                     </div>
                     <div className='space-y-2 text-sm'>
                         <p><strong>From:</strong> {currentRide.pickup}</p>
                         <p><strong>To:</strong> {currentRide.destination}</p>
                         <p><strong>OTP:</strong> <span className='font-mono bg-yellow-100 px-2 py-1 rounded'>{currentRide.otp}</span></p>
+                    </div>
+                </div>
+            )}
+
+            {/* Chat Modal for Captain */}
+            {showChat && currentRide && (
+                <div className='absolute inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4'>
+                    <div className='bg-white rounded-2xl w-full max-w-md h-96 flex flex-col'>
+                        <div className='p-4 border-b bg-blue-500 text-white rounded-t-2xl'>
+                            <div className='flex items-center justify-between'>
+                                <h3 className='font-bold'>Chat with Passenger</h3>
+                                <button
+                                    onClick={() => setShowChat(false)}
+                                    className='text-white hover:bg-blue-600 p-1 rounded'
+                                >
+                                    <i className="ri-close-line text-xl"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className='flex-1 p-4 overflow-y-auto'>
+                            {messages.length === 0 ? (
+                                <div className='text-center text-gray-500 mt-8'>
+                                    <i className="ri-chat-3-line text-3xl mb-2 block"></i>
+                                    <p>No messages yet</p>
+                                </div>
+                            ) : (
+                                <div className='space-y-3'>
+                                    {messages.map((message, index) => (
+                                        <div 
+                                            key={index}
+                                            className={`flex ${message.sender === 'captain' ? 'justify-end' : 'justify-start'}`}
+                                        >
+                                            <div className={`max-w-xs p-3 rounded-lg ${
+                                                message.sender === 'captain' 
+                                                    ? 'bg-blue-500 text-white' 
+                                                    : 'bg-gray-200 text-gray-800'
+                                            }`}>
+                                                <p>{message.text}</p>
+                                                <p className={`text-xs mt-1 ${
+                                                    message.sender === 'captain' ? 'text-blue-100' : 'text-gray-500'
+                                                }`}>
+                                                    {new Date(message.timestamp).toLocaleTimeString()}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className='p-4 border-t'>
+                            <div className='flex gap-3'>
+                                <input
+                                    type="text"
+                                    value={newMessage}
+                                    onChange={(e) => setNewMessage(e.target.value)}
+                                    placeholder="Type a message..."
+                                    className='flex-1 p-3 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500'
+                                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                                />
+                                <button
+                                    onClick={handleSendMessage}
+                                    disabled={!newMessage.trim()}
+                                    className='px-6 py-3 bg-blue-500 text-white rounded-full font-medium disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600'
+                                >
+                                    Send
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

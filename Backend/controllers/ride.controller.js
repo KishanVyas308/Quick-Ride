@@ -15,7 +15,14 @@ module.exports.createRide = async (req, res) => {
     const { userId, pickup, destination, vehicleType, city, captainId } = req.body;
 
     try {
-        const ride = await rideService.createRide({ user: req.user._id, pickup, destination, vehicleType, city, captainId });
+        // Use userId from request body if available, otherwise use authenticated user
+        const userIdToUse = userId || (req.user && req.user._id);
+        
+        if (!userIdToUse) {
+            return res.status(400).json({ message: 'User ID is required' });
+        }
+        
+        const ride = await rideService.createRide({ user: userIdToUse, pickup, destination, vehicleType, city, captainId });
         res.status(201).json(ride);
 
         const pickupCoordinates = await mapService.getAddressCoordinate(pickup);

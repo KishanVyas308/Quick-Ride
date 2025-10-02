@@ -75,6 +75,13 @@ function MapClickHandler({ onMapClick, selectionMode }) {
 }
 
 const Home = () => {
+    // Base vehicle types with pricing structure
+    const baseVehicleTypes = [
+        { id: 'moto', name: 'Moto', icon: '🏍️', baseFare: 30, perKm: 8, description: 'Quick & affordable' },
+        { id: 'auto', name: 'Auto', icon: '🛺', baseFare: 50, perKm: 12, description: 'Comfortable ride' },
+        { id: 'car', name: 'Car', icon: '🚗', baseFare: 70, perKm: 15, description: 'Premium experience' }
+    ]
+
     // Simplified state
     const [pickupLocation, setPickupLocation] = useState(null)
     const [destinationLocation, setDestinationLocation] = useState(null)
@@ -89,16 +96,13 @@ const Home = () => {
     const [availableDrivers, setAvailableDrivers] = useState([])
     const [selectedDriver, setSelectedDriver] = useState(null)
     const [loadingDrivers, setLoadingDrivers] = useState(false)
+    const [distance, setDistance] = useState(0)
+    const [duration, setDuration] = useState(0)
+    const [vehicleTypesWithPricing, setVehicleTypesWithPricing] = useState(baseVehicleTypes)
+    const [driverCounts, setDriverCounts] = useState({ moto: 0, auto: 0, car: 0 })
 
     const { socket } = useContext(SocketContext)
     const { user } = useContext(UserDataContext)
-
-    // Available vehicle types matching backend validation
-    const vehicleTypes = [
-        { id: 'moto', name: 'Moto', icon: '🏍️', price: 80, description: 'Quick & affordable' },
-        { id: 'auto', name: 'Auto', icon: '🛺', price: 120, description: 'Comfortable ride' },
-        { id: 'car', name: 'Car', icon: '🚗', price: 150, description: 'Premium experience' }
-    ]
 
     // Popular cities (you can expand this list)
     const cities = [
@@ -151,12 +155,121 @@ const Home = () => {
         }
     }, [user, socket])
 
+    // Get driver counts when city is selected
+    useEffect(() => {
+        if (selectedCity) {
+            getDriverCounts()
+        }
+    }, [selectedCity])
+
+    // Extract city from address
+    const extractCityFromAddress = (address) => {
+        // Simple city extraction - you can make this more sophisticated
+        const parts = address.split(',')
+        for (let part of parts) {
+            const trimmed = part.trim()
+            // Check if this part matches our city list
+            const matchedCity = cities.find(city => 
+                trimmed.toLowerCase().includes(city.toLowerCase()) ||
+                city.toLowerCase().includes(trimmed.toLowerCase())
+            )
+            if (matchedCity) return matchedCity
+        }
+        return null
+    }
+
     // Handle map clicks
-    const handleMapClick = (locationData) => {
+    const handleMapClick = async (locationData) => {
         if (locationData.type === 'pickup') {
             setPickupLocation(locationData)
+            
+            // Auto-detect city from pickup location
+            const detectedCity = extractCityFromAddress(locationData.address)
+            if (detectedCity && !selectedCity) {
+                setSelectedCity(detectedCity)
+            }
+            
+            // If destination already exists, calculate distance
+            if (destinationLocation) {
+                setTimeout(() => calculateDistanceAndFare(), 100)
+            }
         } else if (locationData.type === 'destination') {
             setDestinationLocation(locationData)
+            
+            // Verify both locations are in the same city
+            if (pickupLocation) {
+                const pickupCity = extractCityFromAddress(pickupLocation.address)
+                const destCity = extractCityFromAddress(locationData.address)
+                
+                if (pickupCity && destCity && pickupCity !== destCity) {
+                    alert(`Both pickup and destination should be in the same city. Pickup: ${pickupCity}, Destination: ${destCity}`)
+                    setDestinationLocation(null)
+                    return
+                }
+            }
+            
+            // Calculate distance and update pricing when both locations are set
+            if (pickupLocation) {
+                setTimeout(() => calculateDistanceAndFare(), 100)
+            }
+        }
+    }
+
+    // Calculate distance between pickup and destination
+    const calculateDistanceAndFare = async () => {
+        if (!pickupLocation || !destinationLocation) {
+            console.log('Missing locations for distance calculation:', { pickupLocation, destinationLocation })
+            return
+        }
+
+        try {
+            console.log('Calculating distance between:', pickupLocation, destinationLocation)
+            
+            // Haversine formula to calculate distance
+            const R = 6371 // Earth's radius in kilometers
+            const dLat = (destinationLocation.lat - pickupLocation.lat) * Math.PI / 180
+            const dLon = (destinationLocation.lng - pickupLocation.lng) * Math.PI / 180
+            const a = 
+                Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(pickupLocation.lat * Math.PI / 180) * Math.cos(destinationLocation.lat * Math.PI / 180) * 
+                Math.sin(dLon/2) * Math.sin(dLon/2)
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+            const calculatedDistance = R * c
+
+            console.log('Calculated distance:', calculatedDistance, 'km')
+
+            setDistance(calculatedDistance)
+            setDuration(Math.round(calculatedDistance * 3)) // Rough estimate: 3 minutes per km
+
+            // Update vehicle types with calculated fares
+            const updatedVehicleTypes = baseVehicleTypes.map(vehicle => ({
+                ...vehicle,
+                price: Math.round(vehicle.baseFare + (calculatedDistance * vehicle.perKm))
+            }))
+            setVehicleTypesWithPricing(updatedVehicleTypes)
+
+            console.log('Updated vehicle types with pricing:', updatedVehicleTypes)
+
+        } catch (error) {
+            console.error('Error calculating distance:', error)
+        }
+    }
+
+    // Get driver counts by vehicle type
+    const getDriverCounts = async () => {
+        if (!selectedCity) return
+
+        try {
+            const counts = { moto: 0, auto: 0, car: 0 }
+            
+            for (const vehicleType of ['moto', 'auto', 'car']) {
+                const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/captains/available?city=${selectedCity}&vehicleType=${vehicleType}`)
+                counts[vehicleType] = response.data.drivers.length
+            }
+            
+            setDriverCounts(counts)
+        } catch (error) {
+            console.error('Error fetching driver counts:', error)
         }
     }
 
@@ -192,7 +305,8 @@ const Home = () => {
                 destination: destinationLocation.address,
                 vehicleType: selectedVehicle,
                 city: selectedCity,
-                captainId: driver._id
+                captainId: driver._id,
+                userId: user?._id || '6743423c24a4b94d8bee6411' // Temporary test user ID
             }, {
                 headers: {
                     Authorization: `Bearer ${localStorage.getItem('token')}`
@@ -252,6 +366,10 @@ const Home = () => {
         setSelectedCity('')
         setAvailableDrivers([])
         setSelectedDriver(null)
+        setDistance(0)
+        setDuration(0)
+        setVehicleTypesWithPricing(baseVehicleTypes)
+        setDriverCounts({ moto: 0, auto: 0, car: 0 })
     }
 
     return (
@@ -370,6 +488,25 @@ const Home = () => {
                                 </p>
                             </div>
                         </div>
+
+                        {/* Distance and Duration Display */}
+                        {pickupLocation && destinationLocation && distance > 0 && (
+                            <div className='flex items-center justify-between p-3 bg-blue-50 rounded-lg border-l-4 border-blue-500'>
+                                <div className='flex items-center gap-2'>
+                                    <i className="ri-route-line text-blue-600 text-xl"></i>
+                                    <div>
+                                        <p className='font-medium text-blue-800'>Trip Details</p>
+                                        <p className='text-sm text-blue-600'>
+                                            {distance.toFixed(1)} km • ~{duration} mins
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className='text-right'>
+                                    <p className='text-xs text-blue-600'>Est. Time</p>
+                                    <p className='font-bold text-blue-800'>{duration} min</p>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* City Selection */}
@@ -392,9 +529,9 @@ const Home = () => {
                     {/* Vehicle Selection */}
                     {pickupLocation && destinationLocation && selectedCity && (
                         <div className='mb-6'>
-                            <h3 className='font-semibold mb-4 text-gray-800'>Choose your ride</h3>
+                            <h3 className='font-semibold mb-4 text-gray-800'>Choose your ride in {selectedCity}</h3>
                             <div className='space-y-3'>
-                                {vehicleTypes.map((vehicle) => (
+                                {vehicleTypesWithPricing.map((vehicle) => (
                                     <button
                                         key={vehicle.id}
                                         onClick={() => setSelectedVehicle(vehicle.id)}
@@ -408,11 +545,20 @@ const Home = () => {
                                             <div className='flex items-center gap-3'>
                                                 <span className='text-2xl'>{vehicle.icon}</span>
                                                 <div>
-                                                    <h4 className='font-semibold'>{vehicle.name}</h4>
+                                                    <h4 className='font-semibold flex items-center gap-2'>
+                                                        {vehicle.name}
+                                                        <span className={`text-xs px-2 py-1 rounded-full ${
+                                                            selectedVehicle === vehicle.id 
+                                                                ? 'bg-gray-700 text-gray-300' 
+                                                                : 'bg-green-100 text-green-600'
+                                                        }`}>
+                                                            {driverCounts[vehicle.id]} available
+                                                        </span>
+                                                    </h4>
                                                     <p className={`text-sm ${
                                                         selectedVehicle === vehicle.id ? 'text-gray-300' : 'text-gray-600'
                                                     }`}>
-                                                        {vehicle.description}
+                                                        {vehicle.description} • {distance.toFixed(1)} km
                                                     </p>
                                                 </div>
                                             </div>
@@ -441,7 +587,7 @@ const Home = () => {
                             ? 'Select pickup and destination' 
                             : !selectedCity
                             ? 'Select your city'
-                            : `Find ${vehicleTypes.find(v => v.id === selectedVehicle)?.name} Drivers in ${selectedCity}`
+                            : `Find ${vehicleTypesWithPricing.find(v => v.id === selectedVehicle)?.name} Drivers (${driverCounts[selectedVehicle]} available)`
                         }
                     </button>
                 </div>
@@ -499,7 +645,8 @@ const Home = () => {
                                             </div>
                                         </div>
                                         <div className='text-right'>
-                                            <p className='font-bold text-lg'>₹{vehicleTypes.find(v => v.id === selectedVehicle)?.price}</p>
+                                            <p className='font-bold text-lg'>₹{vehicleTypesWithPricing.find(v => v.id === selectedVehicle)?.price}</p>
+                                            <p className='text-xs text-gray-500'>{distance.toFixed(1)} km</p>
                                             <button
                                                 onClick={() => handleBookRideWithDriver(driver)}
                                                 className='mt-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm font-medium'
@@ -553,20 +700,60 @@ const Home = () => {
 
             {/* Chatting with driver */}
             {rideStep === 'chatting' && (
-                <div className='absolute bottom-0 left-0 right-0 z-20 bg-white rounded-t-3xl shadow-2xl flex flex-col' style={{ height: '60vh' }}>
+                <div className='absolute bottom-0 left-0 right-0 z-20 bg-white rounded-t-3xl shadow-2xl flex flex-col' style={{ height: '70vh' }}>
                     {/* Chat header */}
-                    <div className='p-4 border-b bg-green-500 text-white rounded-t-3xl'>
-                        <div className='flex items-center justify-between'>
+                    <div className='p-4 border-b bg-gradient-to-r from-green-500 to-green-600 text-white rounded-t-3xl'>
+                        <div className='flex items-center justify-between mb-3'>
                             <div>
-                                <h2 className='text-lg font-bold'>Driver Found!</h2>
-                                <p className='text-sm opacity-90'>You can now chat with your driver</p>
+                                <h2 className='text-lg font-bold'>Driver Found! 🎉</h2>
+                                <p className='text-sm opacity-90'>Your ride is confirmed</p>
                             </div>
                             <button
                                 onClick={handleCompleteRide}
-                                className='bg-white text-green-600 px-4 py-2 rounded-full font-medium hover:bg-gray-100'
+                                className='bg-white text-green-600 px-4 py-2 rounded-full font-medium hover:bg-gray-100 shadow-md'
                             >
-                                Complete Ride
+                                End Ride
                             </button>
+                        </div>
+                        
+                        {/* OTP Display */}
+                        {ride?.otp && (
+                            <div className='bg-white bg-opacity-20 rounded-xl p-3 mb-2'>
+                                <div className='flex items-center justify-between'>
+                                    <div>
+                                        <p className='text-sm opacity-90'>Share this OTP with driver</p>
+                                        <p className='text-2xl font-bold font-mono tracking-wider'>{ride.otp}</p>
+                                    </div>
+                                    <div className='text-right'>
+                                        <p className='text-xs opacity-75'>Trip ID</p>
+                                        <p className='text-sm font-mono'>{ride._id?.substring(0, 8)}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Driver Info */}
+                        <div className='bg-white bg-opacity-15 rounded-lg p-3'>
+                            <div className='flex items-center gap-3'>
+                                <div className='w-12 h-12 bg-white bg-opacity-20 rounded-full flex items-center justify-center'>
+                                    <i className="ri-user-line text-xl"></i>
+                                </div>
+                                <div className='flex-1'>
+                                    <h3 className='font-semibold'>
+                                        {selectedDriver?.fullname?.firstname} {selectedDriver?.fullname?.lastname}
+                                    </h3>
+                                    <p className='text-sm opacity-90'>
+                                        {selectedDriver?.vehicle?.color} {selectedDriver?.vehicle?.vehicleType} • {selectedDriver?.vehicle?.plate}
+                                    </p>
+                                </div>
+                                <div className='text-right'>
+                                    <div className='text-xs opacity-75'>Rating</div>
+                                    <div className='flex items-center gap-1'>
+                                        <span className='font-bold'>4.8</span>
+                                        <i className="ri-star-fill text-yellow-300 text-sm"></i>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
