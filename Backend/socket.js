@@ -78,14 +78,110 @@ function initializeSocket(server) {
         });
 
         // Handle chat messages
-        socket.on('message', (data) => {
+        socket.on('message', async (data) => {
             const { rideId, message } = data;
             
-            // Broadcast message to all users in the ride
-            socket.broadcast.emit('message', {
-                rideId,
-                message
-            });
+            try {
+                // Find the ride to get user and captain info
+                const ride = await require('./models/ride.model').findById(rideId).populate('user captain');
+                
+                if (ride) {
+                    // Send to user if message is from captain
+                    if (message.sender === 'captain' && ride.user && ride.user.socketId) {
+                        io.to(ride.user.socketId).emit('message', message);
+                    }
+                    // Send to captain if message is from user  
+                    else if (message.sender === 'user' && ride.captain && ride.captain.socketId) {
+                        io.to(ride.captain.socketId).emit('message', message);
+                    }
+                }
+            } catch (error) {
+                console.error('Error handling chat message:', error);
+            }
+        });
+
+        // Handle ride ended by user
+        socket.on('ride-ended-by-user', async (data) => {
+            const { rideId, captainId, message } = data;
+            
+            try {
+                // Update ride status to completed
+                await require('./models/ride.model').findByIdAndUpdate(rideId, {
+                    status: 'completed'
+                });
+                
+                // Find captain and notify them
+                const captain = await captainModel.findById(captainId);
+                if (captain && captain.socketId) {
+                    io.to(captain.socketId).emit('ride-ended-by-user', {
+                        rideId,
+                        captainId,
+                        message
+                    });
+                }
+            } catch (error) {
+                console.error('Error handling ride end by user:', error);
+            }
+        });
+
+        // Handle driver status updates (arriving, arrived)
+        socket.on('driver-status-update', async (data) => {
+            const { rideId, status, message } = data;
+            
+            try {
+                const ride = await require('./models/ride.model').findById(rideId).populate('user');
+                
+                if (ride && ride.user && ride.user.socketId) {
+                    if (status === 'arriving') {
+                        io.to(ride.user.socketId).emit('driver-arriving', {
+                            rideId,
+                            message
+                        });
+                    } else if (status === 'arrived') {
+                        io.to(ride.user.socketId).emit('driver-arrived', {
+                            rideId,
+                            message
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error handling driver status update:', error);
+            }
+        });
+
+        // Handle trip status updates (started, ended)
+        socket.on('trip-status-update', async (data) => {
+            const { rideId, status, message } = data;
+            
+            try {
+                const ride = await require('./models/ride.model').findById(rideId).populate('user');
+                
+                if (ride && ride.user && ride.user.socketId) {
+                    if (status === 'started') {
+                        // Update ride status in database
+                        await require('./models/ride.model').findByIdAndUpdate(rideId, {
+                            status: 'ongoing'
+                        });
+                        
+                        io.to(ride.user.socketId).emit('trip-started', {
+                            rideId,
+                            message
+                        });
+                    } else if (status === 'ended') {
+                        // Update ride status in database
+                        await require('./models/ride.model').findByIdAndUpdate(rideId, {
+                            status: 'completed'
+                        });
+                        
+                        io.to(ride.user.socketId).emit('trip-ended', {
+                            rideId,
+                            message
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error handling trip status update:', error);
+            }
         });
 
         socket.on('disconnect', () => {

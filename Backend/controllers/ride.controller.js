@@ -23,17 +23,14 @@ module.exports.createRide = async (req, res) => {
         }
         
         const ride = await rideService.createRide({ user: userIdToUse, pickup, destination, vehicleType, city, captainId });
-        res.status(201).json(ride);
-
+        
         const pickupCoordinates = await mapService.getAddressCoordinate(pickup);
-
-
-
         const captainsInRadius = await mapService.getCaptainsInTheRadius(pickupCoordinates.ltd, pickupCoordinates.lng, 2);
 
-        ride.otp = ""
-
-        const rideWithUser = await rideModel.findOne({ _id: ride._id }).populate('user');
+        const rideWithUser = await rideModel.findOne({ _id: ride._id }).populate('user').select('+otp');
+        
+        // Send response with OTP
+        res.status(201).json(rideWithUser);
 
         // If a specific captain was selected, send request directly to them
         if (captainId) {

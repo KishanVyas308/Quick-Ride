@@ -87,7 +87,7 @@ const Home = () => {
     const [destinationLocation, setDestinationLocation] = useState(null)
     const [currentLocation, setCurrentLocation] = useState([28.6139, 77.2090])
     const [selectionMode, setSelectionMode] = useState('pickup') // 'pickup' or 'destination'
-    const [rideStep, setRideStep] = useState('selecting') // 'selecting', 'drivers', 'booking', 'waiting', 'chatting', 'completed'
+    const [rideStep, setRideStep] = useState('selecting') // 'selecting', 'drivers', 'booking', 'waiting', 'accepted', 'driver-arriving', 'trip-started', 'chatting', 'completed'
     const [ride, setRide] = useState(null)
     const [messages, setMessages] = useState([])
     const [newMessage, setNewMessage] = useState('')
@@ -133,13 +133,39 @@ const Home = () => {
             // Listen for ride confirmation
             socket.on('ride-confirmed', (rideData) => {
                 setRide(rideData)
-                setRideStep('chatting')
+                setRideStep('accepted')
             })
             
             // Listen for ride rejection
             socket.on('ride-rejected', (data) => {
                 alert('Driver declined your ride request. Please try selecting another driver.')
                 setRideStep('drivers')
+                setRide(null)
+                setSelectedDriver(null)
+            })
+            
+            // Listen for driver arriving
+            socket.on('driver-arriving', (data) => {
+                setRideStep('driver-arriving')
+                // Could show estimated arrival time
+            })
+            
+            // Listen for driver arrived
+            socket.on('driver-arrived', (data) => {
+                alert('Your driver has arrived!')
+                setRideStep('driver-arriving')
+            })
+            
+            // Listen for trip started
+            socket.on('trip-started', (data) => {
+                setRideStep('trip-started')
+                alert('Trip started! Enjoy your ride.')
+            })
+            
+            // Listen for trip ended by driver
+            socket.on('trip-ended', (data) => {
+                setRideStep('completed')
+                alert('Trip completed! Thank you for riding with us.')
             })
             
             // Listen for messages
@@ -150,6 +176,10 @@ const Home = () => {
             return () => {
                 socket.off('ride-confirmed')
                 socket.off('ride-rejected')
+                socket.off('driver-arriving')
+                socket.off('driver-arrived')
+                socket.off('trip-started')
+                socket.off('trip-ended')
                 socket.off('message')
             }
         }
@@ -161,6 +191,14 @@ const Home = () => {
             getDriverCounts()
         }
     }, [selectedCity])
+
+    // Calculate distance whenever both locations change
+    useEffect(() => {
+        if (pickupLocation && destinationLocation) {
+            console.log('Locations changed, calculating distance...')
+            calculateDistanceAndFare()
+        }
+    }, [pickupLocation, destinationLocation])
 
     // Extract city from address
     const extractCityFromAddress = (address) => {
@@ -222,21 +260,38 @@ const Home = () => {
             return
         }
 
+        // Validate lat/lng exist
+        if (!pickupLocation.lat || !pickupLocation.lng || !destinationLocation.lat || !destinationLocation.lng) {
+            console.log('Invalid location coordinates:', { 
+                pickup: { lat: pickupLocation.lat, lng: pickupLocation.lng },
+                destination: { lat: destinationLocation.lat, lng: destinationLocation.lng }
+            })
+            return
+        }
+
         try {
-            console.log('Calculating distance between:', pickupLocation, destinationLocation)
+            console.log('Calculating distance between:', 
+                `Pickup: ${pickupLocation.lat}, ${pickupLocation.lng}`, 
+                `Destination: ${destinationLocation.lat}, ${destinationLocation.lng}`
+            )
             
             // Haversine formula to calculate distance
             const R = 6371 // Earth's radius in kilometers
-            const dLat = (destinationLocation.lat - pickupLocation.lat) * Math.PI / 180
-            const dLon = (destinationLocation.lng - pickupLocation.lng) * Math.PI / 180
+            const lat1 = parseFloat(pickupLocation.lat)
+            const lon1 = parseFloat(pickupLocation.lng)
+            const lat2 = parseFloat(destinationLocation.lat)
+            const lon2 = parseFloat(destinationLocation.lng)
+            
+            const dLat = (lat2 - lat1) * Math.PI / 180
+            const dLon = (lon2 - lon1) * Math.PI / 180
             const a = 
                 Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(pickupLocation.lat * Math.PI / 180) * Math.cos(destinationLocation.lat * Math.PI / 180) * 
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
                 Math.sin(dLon/2) * Math.sin(dLon/2)
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
             const calculatedDistance = R * c
 
-            console.log('Calculated distance:', calculatedDistance, 'km')
+            console.log('Calculated distance:', calculatedDistance.toFixed(2), 'km')
 
             setDistance(calculatedDistance)
             setDuration(Math.round(calculatedDistance * 3)) // Rough estimate: 3 minutes per km
@@ -244,7 +299,7 @@ const Home = () => {
             // Update vehicle types with calculated fares
             const updatedVehicleTypes = baseVehicleTypes.map(vehicle => ({
                 ...vehicle,
-                price: Math.round(vehicle.baseFare + (calculatedDistance * vehicle.perKm))
+                price: Math.max(vehicle.baseFare, Math.round(vehicle.baseFare + (calculatedDistance * vehicle.perKm)))
             }))
             setVehicleTypesWithPricing(updatedVehicleTypes)
 
@@ -294,7 +349,26 @@ const Home = () => {
 
     // Book ride with specific driver
     const handleBookRideWithDriver = async (driver) => {
-        if (!pickupLocation || !destinationLocation || !driver) return
+        // Validate all required data
+        if (!pickupLocation || !destinationLocation) {
+            alert('Please select both pickup and destination locations')
+            return
+        }
+        
+        if (!driver) {
+            alert('Please select a driver')
+            return
+        }
+        
+        if (!selectedCity) {
+            alert('City is required for booking')
+            return
+        }
+        
+        if (distance <= 0) {
+            alert('Invalid distance calculation. Please reselect locations.')
+            return
+        }
         
         setSelectedDriver(driver)
         setRideStep('booking')
@@ -313,6 +387,10 @@ const Home = () => {
                 }
             })
             
+            if (!response.data || !response.data._id) {
+                throw new Error('Invalid response from server')
+            }
+            
             setRide(response.data)
             
             // Send ride request to specific driver
@@ -330,7 +408,19 @@ const Home = () => {
             console.error('Error booking ride:', error)
             alert('Failed to book ride. Please try again.')
             setRideStep('drivers')
+            setSelectedDriver(null)
+            setRide(null)
         }
+        
+        // Set a timeout for booking confirmation
+        setTimeout(() => {
+            if (rideStep === 'booking') {
+                alert('No response from driver. Please try selecting another driver.')
+                setRideStep('drivers')
+                setSelectedDriver(null)
+                setRide(null)
+            }
+        }, 30000) // 30 seconds timeout
     }
 
     // Send message
@@ -349,9 +439,24 @@ const Home = () => {
     }
 
     // Complete ride
-    const handleCompleteRide = () => {
-        setRideStep('completed')
-        // Could also emit to socket to notify driver
+    const handleCompleteRide = async () => {
+        if (!ride) return
+        
+        try {
+            // Notify driver via socket
+            socket.emit('ride-ended-by-user', {
+                rideId: ride._id,
+                captainId: ride.captain,
+                message: 'User has ended the ride'
+            })
+            
+            // Set UI state
+            setRideStep('completed')
+            
+            console.log('Ride completed by user')
+        } catch (error) {
+            console.error('Error completing ride:', error)
+        }
     }
 
     // Reset to initial state
@@ -558,12 +663,12 @@ const Home = () => {
                                                     <p className={`text-sm ${
                                                         selectedVehicle === vehicle.id ? 'text-gray-300' : 'text-gray-600'
                                                     }`}>
-                                                        {vehicle.description} • {distance.toFixed(1)} km
+                                                        {vehicle.description} • {(distance > 0 && !isNaN(distance)) ? distance.toFixed(1) : '0.0'} km
                                                     </p>
                                                 </div>
                                             </div>
                                             <div className='text-right'>
-                                                <p className='font-bold'>₹{vehicle.price}</p>
+                                                <p className='font-bold'>₹{vehicle.price || vehicle.baseFare}</p>
                                                 <p className={`text-xs ${
                                                     selectedVehicle === vehicle.id ? 'text-gray-300' : 'text-gray-500'
                                                 }`}>
@@ -646,7 +751,7 @@ const Home = () => {
                                         </div>
                                         <div className='text-right'>
                                             <p className='font-bold text-lg'>₹{vehicleTypesWithPricing.find(v => v.id === selectedVehicle)?.price}</p>
-                                            <p className='text-xs text-gray-500'>{distance.toFixed(1)} km</p>
+                                            <p className='text-xs text-gray-500'>{(distance > 0 && !isNaN(distance)) ? distance.toFixed(1) : '0.0'} km</p>
                                             <button
                                                 onClick={() => handleBookRideWithDriver(driver)}
                                                 className='mt-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm font-medium'
@@ -780,7 +885,7 @@ const Home = () => {
                                             <p className={`text-xs mt-1 ${
                                                 message.sender === 'user' ? 'text-gray-300' : 'text-gray-500'
                                             }`}>
-                                                {new Date(message.timestamp).toLocaleTimeString()}
+                                                {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : 'Now'}
                                             </p>
                                         </div>
                                     </div>
@@ -806,6 +911,133 @@ const Home = () => {
                                 className='px-6 py-3 bg-black text-white rounded-full font-medium disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-gray-800'
                             >
                                 Send
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Ride Accepted */}
+            {rideStep === 'accepted' && (
+                <div className='absolute bottom-0 left-0 right-0 z-20 bg-white rounded-t-3xl shadow-2xl p-6'>
+                    <div className='text-center'>
+                        <div className='w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4'>
+                            <i className="ri-check-line text-2xl text-green-600"></i>
+                        </div>
+                        <h2 className='text-xl font-bold mb-2 text-green-600'>Ride Accepted! 🎉</h2>
+                        <p className='text-gray-600 mb-4'>Your driver is on the way</p>
+                        
+                        {ride && ride.captain && (
+                            <div className='bg-gray-50 rounded-lg p-4 mb-4'>
+                                <h3 className='font-semibold mb-2'>Driver Details</h3>
+                                <p><strong>Name:</strong> {ride.captain.fullname?.firstname} {ride.captain.fullname?.lastname}</p>
+                                <p><strong>Vehicle:</strong> {ride.captain.vehicle?.color} {ride.captain.vehicle?.vehicleType}</p>
+                                <p><strong>Plate:</strong> {ride.captain.vehicle?.plate}</p>
+                            </div>
+                        )}
+                        
+                        {ride?.otp && (
+                            <div className='bg-blue-50 rounded-lg p-4 mb-4'>
+                                <p className='text-sm text-blue-600 mb-1'>Your OTP</p>
+                                <p className='text-2xl font-bold text-blue-700 font-mono'>{ride.otp}</p>
+                            </div>
+                        )}
+                        
+                        <button
+                            onClick={() => setRideStep('chatting')}
+                            className='w-full py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 mb-3'
+                        >
+                            Chat with Driver
+                        </button>
+                        
+                        <button
+                            onClick={handleCompleteRide}
+                            className='w-full py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300'
+                        >
+                            Cancel Ride
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Driver Arriving */}
+            {rideStep === 'driver-arriving' && (
+                <div className='absolute bottom-0 left-0 right-0 z-20 bg-white rounded-t-3xl shadow-2xl p-6'>
+                    <div className='text-center'>
+                        <div className="animate-bounce">
+                            <div className='w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4'>
+                                <i className="ri-car-line text-2xl text-yellow-600"></i>
+                            </div>
+                        </div>
+                        <h2 className='text-xl font-bold mb-2 text-yellow-600'>Driver Arriving!</h2>
+                        <p className='text-gray-600 mb-4'>Your driver will be there shortly</p>
+                        
+                        {ride?.otp && (
+                            <div className='bg-yellow-50 rounded-lg p-4 mb-4'>
+                                <p className='text-sm text-yellow-600 mb-1'>Share this OTP with driver</p>
+                                <p className='text-2xl font-bold text-yellow-700 font-mono'>{ride.otp}</p>
+                            </div>
+                        )}
+                        
+                        <div className='flex gap-3'>
+                            <button
+                                onClick={() => setRideStep('chatting')}
+                                className='flex-1 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600'
+                            >
+                                Chat
+                            </button>
+                            
+                            <button
+                                onClick={handleCompleteRide}
+                                className='flex-1 py-3 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600'
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Trip Started */}
+            {rideStep === 'trip-started' && (
+                <div className='absolute bottom-0 left-0 right-0 z-20 bg-white rounded-t-3xl shadow-2xl p-6'>
+                    <div className='text-center'>
+                        <div className="animate-pulse">
+                            <div className='w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4'>
+                                <i className="ri-navigation-line text-2xl text-green-600"></i>
+                            </div>
+                        </div>
+                        <h2 className='text-xl font-bold mb-2 text-green-600'>Trip in Progress 🚗</h2>
+                        <p className='text-gray-600 mb-4'>Enjoy your ride!</p>
+                        
+                        <div className='bg-gray-50 rounded-lg p-4 mb-4'>
+                            <div className='flex justify-between items-center mb-2'>
+                                <span className='text-sm text-gray-600'>From:</span>
+                                <span className='text-sm font-medium'>{pickupLocation?.address?.substring(0, 30)}...</span>
+                            </div>
+                            <div className='flex justify-between items-center mb-2'>
+                                <span className='text-sm text-gray-600'>To:</span>
+                                <span className='text-sm font-medium'>{destinationLocation?.address?.substring(0, 30)}...</span>
+                            </div>
+                            <div className='flex justify-between items-center'>
+                                <span className='text-sm text-gray-600'>Distance:</span>
+                                <span className='text-sm font-medium'>{(distance > 0 && !isNaN(distance)) ? distance.toFixed(1) : '0.0'} km</span>
+                            </div>
+                        </div>
+                        
+                        <div className='flex gap-3'>
+                            <button
+                                onClick={() => setRideStep('chatting')}
+                                className='flex-1 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600'
+                            >
+                                Chat with Driver
+                            </button>
+                            
+                            <button
+                                onClick={handleCompleteRide}
+                                className='flex-1 py-3 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600'
+                            >
+                                End Trip
                             </button>
                         </div>
                     </div>

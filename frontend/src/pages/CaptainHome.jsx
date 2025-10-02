@@ -140,9 +140,20 @@ const CaptainHome = () => {
             setMessages(prev => [...prev, data.message])
         })
 
+        // Listen for ride ended by user
+        socket.on('ride-ended-by-user', (data) => {
+            if (data.captainId === captain._id) {
+                alert('User has ended the ride')
+                setCurrentRide(null)
+                setMessages([])
+            }
+        })
+
         return () => {
             socket.off('ride-request-to-captain')
             socket.off('ride-confirmed')
+            socket.off('message')
+            socket.off('ride-ended-by-user')
             socket.off('message')
         }
     }, [socket, captain])
@@ -210,6 +221,91 @@ const CaptainHome = () => {
         })
         
         setIncomingRide(null)
+    }
+
+    // Notify user that driver is arriving
+    const notifyDriverArriving = () => {
+        if (!currentRide) return
+        
+        socket.emit('driver-status-update', {
+            rideId: currentRide._id,
+            status: 'arriving',
+            message: 'Driver is on the way to pickup location'
+        })
+        
+        alert('User notified that you are arriving!')
+    }
+
+    // Notify user that driver has arrived
+    const notifyDriverArrived = () => {
+        if (!currentRide) return
+        
+        socket.emit('driver-status-update', {
+            rideId: currentRide._id,
+            status: 'arrived',
+            message: 'Driver has arrived at pickup location'
+        })
+        
+        alert('User notified that you have arrived!')
+    }
+
+    // Start the trip (after OTP verification)
+    const startTrip = async () => {
+        if (!currentRide) return
+        
+        const otp = prompt('Enter the OTP provided by the user:')
+        if (!otp) return
+        
+        try {
+            const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/rides/start-ride?rideId=${currentRide._id}&otp=${otp}`, {
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                }
+            })
+            
+            socket.emit('trip-status-update', {
+                rideId: currentRide._id,
+                status: 'started',
+                message: 'Trip has started'
+            })
+            
+            alert('Trip started successfully!')
+            
+        } catch (error) {
+            console.error('Error starting trip:', error)
+            alert('Invalid OTP or error starting trip. Please try again.')
+        }
+    }
+
+    // End the trip
+    const endTrip = async () => {
+        if (!currentRide) return
+        
+        if (!confirm('Are you sure you want to end this trip?')) return
+        
+        try {
+            const response = await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/end-ride`, {
+                rideId: currentRide._id
+            }, {
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                }
+            })
+            
+            socket.emit('trip-status-update', {
+                rideId: currentRide._id,
+                status: 'ended',
+                message: 'Trip has been completed'
+            })
+            
+            alert('Trip completed successfully!')
+            setCurrentRide(null)
+            setMessages([])
+            
+        } catch (error) {
+            console.error('Error ending trip:', error)
+            alert('Error ending trip. Please try again.')
+        }
     }
 
     // Logout handler
@@ -445,10 +541,42 @@ const CaptainHome = () => {
                             </span>
                         </div>
                     </div>
-                    <div className='space-y-2 text-sm'>
+                    <div className='space-y-2 text-sm mb-4'>
                         <p><strong>From:</strong> {currentRide.pickup}</p>
                         <p><strong>To:</strong> {currentRide.destination}</p>
                         <p><strong>OTP:</strong> <span className='font-mono bg-yellow-100 px-2 py-1 rounded'>{currentRide.otp}</span></p>
+                    </div>
+                    
+                    {/* Action Buttons */}
+                    <div className='grid grid-cols-2 gap-2 mb-3'>
+                        <button
+                            onClick={notifyDriverArriving}
+                            className='px-3 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600'
+                        >
+                            <i className="ri-navigation-line mr-1"></i>
+                            Arriving
+                        </button>
+                        <button
+                            onClick={notifyDriverArrived}
+                            className='px-3 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600'
+                        >
+                            <i className="ri-map-pin-line mr-1"></i>
+                            Arrived
+                        </button>
+                        <button
+                            onClick={startTrip}
+                            className='px-3 py-2 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600'
+                        >
+                            <i className="ri-play-circle-line mr-1"></i>
+                            Start Trip
+                        </button>
+                        <button
+                            onClick={endTrip}
+                            className='px-3 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600'
+                        >
+                            <i className="ri-stop-circle-line mr-1"></i>
+                            End Trip
+                        </button>
                     </div>
                 </div>
             )}
@@ -491,7 +619,7 @@ const CaptainHome = () => {
                                                 <p className={`text-xs mt-1 ${
                                                     message.sender === 'captain' ? 'text-blue-100' : 'text-gray-500'
                                                 }`}>
-                                                    {new Date(message.timestamp).toLocaleTimeString()}
+                                                    {message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : 'Now'}
                                                 </p>
                                             </div>
                                         </div>
