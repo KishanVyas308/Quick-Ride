@@ -18,16 +18,34 @@ L.Icon.Default.mergeOptions({
 const CaptainHome = () => {
     const navigate = useNavigate()
     
-    // State management
+    // Enhanced state management
     const [currentLocation, setCurrentLocation] = useState([28.6139, 77.2090])
     const [isOnline, setIsOnline] = useState(false)
     const [incomingRide, setIncomingRide] = useState(null)
     const [currentRide, setCurrentRide] = useState(null)
-    const [earnings, setEarnings] = useState({ today: 0, total: 0 })
-    const [stats, setStats] = useState({ rides: 0, rating: 4.8 })
+    const [earnings, setEarnings] = useState({ 
+        today: { totalEarnings: 0, totalRides: 0 }, 
+        week: { totalEarnings: 0, totalRides: 0 },
+        month: { totalEarnings: 0, totalRides: 0 },
+        total: 0 
+    })
+    const [stats, setStats] = useState({ 
+        rides: 0, 
+        rating: 4.8, 
+        acceptance: 85,
+        completion: 95,
+        onlineHours: 0
+    })
+    const [earningsAnalytics, setEarningsAnalytics] = useState(null)
     const [showChat, setShowChat] = useState(false)
     const [messages, setMessages] = useState([])
     const [newMessage, setNewMessage] = useState('')
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState(null)
+    const [notifications, setNotifications] = useState([])
+    const [rideHistory, setRideHistory] = useState([])
+    const [locationPermission, setLocationPermission] = useState('pending')
+    const [networkStatus, setNetworkStatus] = useState('online')
     
     const { socket } = useContext(SocketContext)
     const { captain } = useContext(CaptainDataContext)
@@ -64,10 +82,89 @@ const CaptainHome = () => {
         }
     }
 
-    // Call debug on component mount
+    // Enhanced earnings and analytics fetching
+    const fetchAnalytics = async () => {
+        if (!captain?._id) return
+        
+        try {
+            setLoading(true)
+            
+            // Fetch comprehensive earnings analytics
+            const earningsResponse = await axios.get(`${import.meta.env.VITE_BASE_URL}/earnings/analytics`, {
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                }
+            })
+            
+            const earningsData = earningsResponse.data.data
+            
+            setEarningsAnalytics(earningsData)
+            
+            setEarnings({
+                today: earningsData.analytics.today,
+                week: earningsData.analytics.week,
+                month: earningsData.analytics.month,
+                total: earningsData.performance.totalLifetimeEarnings
+            })
+            
+            setStats({
+                rides: earningsData.performance.totalLifetimeRides,
+                rating: earningsData.performance.rating,
+                acceptance: earningsData.performance.acceptanceRate,
+                completion: earningsData.performance.completionRate,
+                onlineHours: 0 // Will be updated separately
+            })
+
+            console.log('Earnings analytics loaded:', earningsData)
+            
+        } catch (error) {
+            console.error('Error fetching earnings analytics:', error)
+            setError('Failed to load earnings data')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    // Fetch daily stats
+    const fetchDailyStats = async () => {
+        if (!captain?._id) return
+        
+        try {
+            const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/earnings/daily-stats`, {
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                }
+            })
+            
+            const dailyData = response.data.data
+            setStats(prev => ({
+                ...prev,
+                onlineHours: dailyData.dailyStats.onlineHours || 0
+            }))
+            
+        } catch (error) {
+            console.error('Error fetching daily stats:', error)
+        }
+    }
+
+    const fetchRideHistory = async () => {
+        if (!captain?._id) return
+        
+        try {
+            const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/analytics/captain/${captain._id}/rides?limit=5`)
+            setRideHistory(response.data.rides || [])
+        } catch (error) {
+            console.error('Error fetching ride history:', error)
+        }
+    }
+
+    // Call functions on component mount
     useEffect(() => {
         if (captain) {
             debugAuth()
+            fetchAnalytics()
+            fetchDailyStats()
+            fetchRideHistory()
         }
     }, [captain])
 
@@ -149,11 +246,39 @@ const CaptainHome = () => {
             }
         })
 
+        // Listen for earnings updates
+        socket.on('earnings-updated', (data) => {
+            console.log('Earnings updated:', data)
+            
+            // Update earnings display
+            setEarnings(prev => ({
+                ...prev,
+                today: {
+                    ...prev.today,
+                    totalEarnings: data.updatedStats.totalEarnings
+                },
+                total: data.updatedStats.totalEarnings
+            }))
+
+            setStats(prev => ({
+                ...prev,
+                rides: data.updatedStats.totalRides,
+                rating: data.updatedStats.rating,
+                acceptance: data.updatedStats.acceptanceRate,
+                completion: data.updatedStats.completionRate
+            }))
+
+            // Show earnings notification
+            const message = `Ride completed! Earned ₹${data.earnings.totalEarnings} ${data.earnings.bonus > 0 ? `(+₹${data.earnings.bonus} bonus)` : ''}`
+            alert(message)
+        })
+
         return () => {
             socket.off('ride-request-to-captain')
             socket.off('ride-confirmed')
             socket.off('message')
             socket.off('ride-ended-by-user')
+            socket.off('earnings-updated')
             socket.off('message')
         }
     }, [socket, captain])
@@ -352,9 +477,16 @@ const CaptainHome = () => {
                         />
                         <div>
                             <h1 className='font-bold text-lg'>Captain Dashboard</h1>
-                            <p className='text-sm text-gray-600'>
-                                {captain?.fullname?.firstname} • {captain?.city}
-                            </p>
+                            <div className='flex items-center gap-3 text-sm'>
+                                <span className='text-gray-600'>
+                                    {captain?.fullname?.firstname} • {captain?.city}
+                                </span>
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                    isOnline ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                                }`}>
+                                    {isOnline ? '🟢 Online' : '🔴 Offline'}
+                                </span>
+                            </div>
                         </div>
                     </div>
                     
@@ -416,22 +548,72 @@ const CaptainHome = () => {
 
             {/* Bottom Dashboard */}
             <div className='absolute bottom-0 left-0 right-0 z-20 bg-white rounded-t-3xl shadow-2xl p-6'>
-                {/* Stats Overview */}
-                <div className='grid grid-cols-3 gap-4 mb-6'>
-                    <div className='text-center p-4 bg-green-50 rounded-xl'>
-                        <div className='text-2xl font-bold text-green-600'>₹{earnings.today}</div>
-                        <div className='text-sm text-green-600'>Today's Earnings</div>
-                    </div>
-                    <div className='text-center p-4 bg-blue-50 rounded-xl'>
-                        <div className='text-2xl font-bold text-blue-600'>{stats.rides}</div>
-                        <div className='text-sm text-blue-600'>Total Rides</div>
-                    </div>
-                    <div className='text-center p-4 bg-yellow-50 rounded-xl'>
-                        <div className='flex items-center justify-center gap-1'>
-                            <div className='text-2xl font-bold text-yellow-600'>{stats.rating}</div>
-                            <i className="ri-star-fill text-yellow-500"></i>
+                {/* Enhanced Stats Overview */}
+                <div className='grid grid-cols-2 gap-4 mb-4'>
+                    <div className='p-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl'>
+                        <div className='flex items-center justify-between mb-2'>
+                            <i className="ri-money-dollar-circle-line text-2xl opacity-80"></i>
+                            <span className='text-xs opacity-80'>TODAY</span>
                         </div>
-                        <div className='text-sm text-yellow-600'>Rating</div>
+                        <div className='text-2xl font-bold'>₹{earnings.today.totalEarnings || 0}</div>
+                        <div className='text-sm opacity-90'>
+                            {earnings.today.totalRides || 0} rides • ₹{earnings.today.totalRides > 0 ? Math.round(earnings.today.totalEarnings / earnings.today.totalRides) : 0} avg
+                        </div>
+                    </div>
+                    
+                    <div className='p-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl'>
+                        <div className='flex items-center justify-between mb-2'>
+                            <i className="ri-car-line text-2xl opacity-80"></i>
+                            <span className='text-xs opacity-80'>TOTAL</span>
+                        </div>
+                        <div className='text-2xl font-bold'>{stats.rides}</div>
+                        <div className='text-sm opacity-90'>₹{earnings.total} earned</div>
+                    </div>
+                </div>
+
+                {/* Weekly and Monthly Stats */}
+                <div className='grid grid-cols-2 gap-4 mb-4'>
+                    <div className='p-3 bg-purple-50 rounded-lg'>
+                        <div className='flex items-center justify-between mb-1'>
+                            <i className="ri-calendar-week-line text-purple-600"></i>
+                            <span className='text-xs text-purple-600 font-medium'>THIS WEEK</span>
+                        </div>
+                        <div className='text-lg font-bold text-purple-700'>₹{earnings.week.totalEarnings || 0}</div>
+                        <div className='text-xs text-purple-600'>{earnings.week.totalRides || 0} rides</div>
+                    </div>
+                    
+                    <div className='p-3 bg-orange-50 rounded-lg'>
+                        <div className='flex items-center justify-between mb-1'>
+                            <i className="ri-calendar-line text-orange-600"></i>
+                            <span className='text-xs text-orange-600 font-medium'>THIS MONTH</span>
+                        </div>
+                        <div className='text-lg font-bold text-orange-700'>₹{earnings.month.totalEarnings || 0}</div>
+                        <div className='text-xs text-orange-600'>{earnings.month.totalRides || 0} rides</div>
+                    </div>
+                </div>
+
+                <div className='grid grid-cols-4 gap-2 mb-6'>
+                    <div className='text-center p-3 bg-yellow-50 rounded-lg'>
+                        <div className='flex items-center justify-center gap-1 mb-1'>
+                            <div className='text-lg font-bold text-yellow-600'>{stats.rating.toFixed(1)}</div>
+                            <i className="ri-star-fill text-yellow-500 text-sm"></i>
+                        </div>
+                        <div className='text-xs text-yellow-600'>Rating</div>
+                    </div>
+                    
+                    <div className='text-center p-3 bg-green-50 rounded-lg'>
+                        <div className='text-lg font-bold text-green-600'>{stats.acceptance}%</div>
+                        <div className='text-xs text-green-600'>Accept</div>
+                    </div>
+                    
+                    <div className='text-center p-3 bg-blue-50 rounded-lg'>
+                        <div className='text-lg font-bold text-blue-600'>{stats.completion}%</div>
+                        <div className='text-xs text-blue-600'>Complete</div>
+                    </div>
+                    
+                    <div className='text-center p-3 bg-indigo-50 rounded-lg'>
+                        <div className='text-lg font-bold text-indigo-600'>{stats.onlineHours.toFixed(1)}h</div>
+                        <div className='text-xs text-indigo-600'>Online</div>
                     </div>
                 </div>
 

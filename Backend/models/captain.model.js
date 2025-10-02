@@ -72,7 +72,117 @@ const captainSchema = new mongoose.Schema({
         type: String,
         required: true,
         minlength: [ 2, 'City must be at least 2 characters long' ],
-    }
+    },
+
+    // Analytics and Performance
+    stats: {
+        totalRides: {
+            type: Number,
+            default: 0,
+        },
+        totalEarnings: {
+            type: Number,
+            default: 0,
+        },
+        rating: {
+            type: Number,
+            default: 5.0,
+            min: 0,
+            max: 5,
+        },
+        totalRatings: {
+            type: Number,
+            default: 0,
+        },
+        acceptanceRate: {
+            type: Number,
+            default: 100,
+            min: 0,
+            max: 100,
+        },
+        completionRate: {
+            type: Number,
+            default: 100,
+            min: 0,
+            max: 100,
+        },
+    },
+
+    // Daily/Weekly stats
+    dailyStats: {
+        date: {
+            type: Date,
+            default: Date.now,
+        },
+        rides: {
+            type: Number,
+            default: 0,
+        },
+        earnings: {
+            type: Number,
+            default: 0,
+        },
+        onlineHours: {
+            type: Number,
+            default: 0,
+        },
+    },
+
+    // Availability
+    availability: {
+        isOnline: {
+            type: Boolean,
+            default: false,
+        },
+        lastOnlineAt: {
+            type: Date,
+        },
+        totalOnlineHours: {
+            type: Number,
+            default: 0,
+        },
+    },
+
+    // Documents and verification
+    verification: {
+        isVerified: {
+            type: Boolean,
+            default: false,
+        },
+        documentsSubmitted: {
+            type: Boolean,
+            default: false,
+        },
+        licenseNumber: {
+            type: String,
+        },
+        vehicleRegistration: {
+            type: String,
+        },
+    },
+
+    // Preferences
+    preferences: {
+        acceptRadius: {
+            type: Number,
+            default: 5, // km
+        },
+        preferredAreas: [{
+            type: String,
+        }],
+        workingHours: {
+            start: {
+                type: String,
+                default: '06:00',
+            },
+            end: {
+                type: String,
+                default: '22:00',
+            },
+        },
+    },
+}, {
+    timestamps: true,
 })
 
 

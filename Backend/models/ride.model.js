@@ -32,6 +32,16 @@ const rideSchema = new mongoose.Schema({
         type: Number,
         required: true,
     },
+    baseFare: {
+        type: Number,
+    },
+    surgePricing: {
+        type: Number,
+        default: 1.0,
+    },
+    estimatedFare: {
+        type: Number,
+    },
 
     status: {
         type: String,
@@ -42,10 +52,59 @@ const rideSchema = new mongoose.Schema({
     duration: {
         type: Number,
     }, // in seconds
+    estimatedDuration: {
+        type: Number,
+    }, // estimated duration in minutes
 
     distance: {
         type: Number,
     }, // in meters
+    estimatedDistance: {
+        type: Number,
+    }, // estimated distance in km
+
+    // Timestamps
+    requestedAt: {
+        type: Date,
+        default: Date.now,
+    },
+    acceptedAt: {
+        type: Date,
+    },
+    startedAt: {
+        type: Date,
+    },
+    completedAt: {
+        type: Date,
+    },
+    cancelledAt: {
+        type: Date,
+    },
+
+    // Location coordinates
+    pickupCoordinates: {
+        lat: Number,
+        lng: Number,
+    },
+    destinationCoordinates: {
+        lat: Number,
+        lng: Number,
+    },
+
+    // Rating and feedback
+    userRating: {
+        type: Number,
+        min: 1,
+        max: 5,
+    },
+    captainRating: {
+        type: Number,
+        min: 1,
+        max: 5,
+    },
+    feedback: {
+        type: String,
+    },
 
     paymentID: {
         type: String,

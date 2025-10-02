@@ -100,6 +100,17 @@ const Home = () => {
     const [duration, setDuration] = useState(0)
     const [vehicleTypesWithPricing, setVehicleTypesWithPricing] = useState(baseVehicleTypes)
     const [driverCounts, setDriverCounts] = useState({ moto: 0, auto: 0, car: 0 })
+    
+    // Enhanced state management
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState(null)
+    const [locationPermission, setLocationPermission] = useState('pending') // 'pending', 'granted', 'denied'
+    const [networkStatus, setNetworkStatus] = useState('online')
+    const [estimatedFare, setEstimatedFare] = useState(null)
+    const [eta, setEta] = useState(null)
+    const [bookingTimeout, setBookingTimeout] = useState(null)
+    const [notifications, setNotifications] = useState([])
+    const [showOfflineMode, setShowOfflineMode] = useState(false)
 
     const { socket } = useContext(SocketContext)
     const { user } = useContext(UserDataContext)
@@ -110,18 +121,62 @@ const Home = () => {
         'Pune', 'Ahmedabad', 'Surat', 'Jaipur', 'Lucknow', 'Kanpur'
     ]
 
-    // Get current location on load
+    // Enhanced geolocation handling
     useEffect(() => {
-        if (navigator.geolocation) {
+        const getCurrentLocation = () => {
+            if (!navigator.geolocation) {
+                setLocationPermission('denied')
+                setError('Geolocation is not supported by this browser')
+                return
+            }
+
+            setLoading(true)
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     const { latitude, longitude } = position.coords
                     setCurrentLocation([latitude, longitude])
+                    setLocationPermission('granted')
+                    setLoading(false)
                 },
                 (error) => {
-                    console.error('Geolocation error:', error)
+                    setLocationPermission('denied')
+                    setLoading(false)
+                    
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            setError('Location access denied. Please enable location services.')
+                            break
+                        case error.POSITION_UNAVAILABLE:
+                            setError('Location information is unavailable.')
+                            break
+                        case error.TIMEOUT:
+                            setError('Location request timed out.')
+                            break
+                        default:
+                            setError('An unknown error occurred while retrieving location.')
+                            break
+                    }
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 300000 // 5 minutes
                 }
             )
+        }
+
+        getCurrentLocation()
+
+        // Watch network status
+        const handleOnline = () => setNetworkStatus('online')
+        const handleOffline = () => setNetworkStatus('offline')
+        
+        window.addEventListener('online', handleOnline)
+        window.addEventListener('offline', handleOffline)
+
+        return () => {
+            window.removeEventListener('online', handleOnline)
+            window.removeEventListener('offline', handleOffline)
         }
     }, [])
 
@@ -293,38 +348,90 @@ const Home = () => {
 
             console.log('Calculated distance:', calculatedDistance.toFixed(2), 'km')
 
-            setDistance(calculatedDistance)
-            setDuration(Math.round(calculatedDistance * 3)) // Rough estimate: 3 minutes per km
+            // Minimum distance validation
+            const validatedDistance = Math.max(0.1, calculatedDistance) // Minimum 100 meters
+            setDistance(validatedDistance)
+            
+            // Enhanced duration calculation with traffic consideration
+            const timeOfDay = new Date().getHours()
+            const isRushHour = (timeOfDay >= 8 && timeOfDay <= 10) || (timeOfDay >= 17 && timeOfDay <= 20)
+            const trafficMultiplier = isRushHour ? 1.8 : 1.2
+            const baseDuration = validatedDistance * 2.5 // 2.5 minutes per km base
+            const estimatedDuration = Math.round(baseDuration * trafficMultiplier)
+            setDuration(estimatedDuration)
 
-            // Update vehicle types with calculated fares
-            const updatedVehicleTypes = baseVehicleTypes.map(vehicle => ({
-                ...vehicle,
-                price: Math.max(vehicle.baseFare, Math.round(vehicle.baseFare + (calculatedDistance * vehicle.perKm)))
-            }))
+            // Dynamic pricing based on time and demand
+            const surgePricing = isRushHour ? 1.5 : 1.0
+            const dayOfWeek = new Date().getDay()
+            const weekendMultiplier = (dayOfWeek === 0 || dayOfWeek === 6) ? 1.2 : 1.0
+
+            // Update vehicle types with enhanced pricing
+            const updatedVehicleTypes = baseVehicleTypes.map(vehicle => {
+                const baseFare = vehicle.baseFare * surgePricing * weekendMultiplier
+                const distanceFare = validatedDistance * vehicle.perKm * surgePricing
+                const totalFare = Math.round(Math.max(vehicle.baseFare, baseFare + distanceFare))
+                
+                return {
+                    ...vehicle,
+                    price: totalFare,
+                    originalPrice: Math.round(vehicle.baseFare + (validatedDistance * vehicle.perKm)),
+                    surge: surgePricing > 1,
+                    surgeMultiplier: surgePricing,
+                    estimatedTime: estimatedDuration
+                }
+            })
+            
             setVehicleTypesWithPricing(updatedVehicleTypes)
+            setEstimatedFare(updatedVehicleTypes.find(v => v.id === selectedVehicle)?.price)
 
-            console.log('Updated vehicle types with pricing:', updatedVehicleTypes)
+            console.log('Updated vehicle types with enhanced pricing:', updatedVehicleTypes)
 
         } catch (error) {
             console.error('Error calculating distance:', error)
         }
     }
 
-    // Get driver counts by vehicle type
-    const getDriverCounts = async () => {
+    // Enhanced driver search with caching and retries
+    const getDriverCounts = async (retryCount = 0) => {
         if (!selectedCity) return
 
         try {
+            setLoading(true)
             const counts = { moto: 0, auto: 0, car: 0 }
+            const promises = []
             
             for (const vehicleType of ['moto', 'auto', 'car']) {
-                const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/captains/available?city=${selectedCity}&vehicleType=${vehicleType}`)
-                counts[vehicleType] = response.data.drivers.length
+                const promise = axios.get(`${import.meta.env.VITE_BASE_URL}/captains/available?city=${selectedCity}&vehicleType=${vehicleType}`, {
+                    timeout: 5000,
+                    headers: {
+                        'Cache-Control': 'no-cache'
+                    }
+                }).then(response => {
+                    counts[vehicleType] = response.data.drivers.length
+                }).catch(err => {
+                    console.warn(`Error fetching ${vehicleType} drivers:`, err)
+                    counts[vehicleType] = 0
+                })
+                promises.push(promise)
             }
             
+            await Promise.all(promises)
             setDriverCounts(counts)
+            setError(null)
+            
         } catch (error) {
             console.error('Error fetching driver counts:', error)
+            
+            // Retry logic for network errors
+            if (retryCount < 2 && (error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT')) {
+                console.log(`Retrying driver counts fetch... Attempt ${retryCount + 1}`)
+                setTimeout(() => getDriverCounts(retryCount + 1), 1000)
+                return
+            }
+            
+            setError('Unable to fetch available drivers. Please check your connection.')
+        } finally {
+            setLoading(false)
         }
     }
 
@@ -372,20 +479,38 @@ const Home = () => {
         
         setSelectedDriver(driver)
         setRideStep('booking')
+        setLoading(true)
+        setError(null)
         
         try {
+            // Set booking timeout
+            const timeout = setTimeout(() => {
+                setError('Booking is taking longer than expected. Please try again.')
+                setRideStep('drivers')
+                setSelectedDriver(null)
+            }, 30000) // 30 seconds timeout
+            
+            setBookingTimeout(timeout)
+
             const response = await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/create`, {
                 pickup: pickupLocation.address,
                 destination: destinationLocation.address,
                 vehicleType: selectedVehicle,
                 city: selectedCity,
                 captainId: driver._id,
-                userId: user?._id || '6743423c24a4b94d8bee6411' // Temporary test user ID
+                userId: user?._id || '6743423c24a4b94d8bee6411', // Temporary test user ID
+                distance: distance.toFixed(2),
+                estimatedFare: estimatedFare,
+                estimatedDuration: duration
             }, {
                 headers: {
                     Authorization: `Bearer ${localStorage.getItem('token')}`
-                }
+                },
+                timeout: 15000 // 15 seconds API timeout
             })
+            
+            clearTimeout(timeout)
+            setBookingTimeout(null)
             
             if (!response.data || !response.data._id) {
                 throw new Error('Invalid response from server')
@@ -393,23 +518,75 @@ const Home = () => {
             
             setRide(response.data)
             
-            // Send ride request to specific driver
+            // Enhanced ride request with more details
             socket.emit('ride-request', {
                 rideId: response.data._id,
                 captainId: driver._id,
                 pickup: pickupLocation.address,
                 destination: destinationLocation.address,
-                vehicleType: selectedVehicle
+                vehicleType: selectedVehicle,
+                estimatedFare: estimatedFare,
+                distance: distance.toFixed(2),
+                duration: duration,
+                userInfo: {
+                    name: user?.fullname?.firstname || 'User',
+                    phone: user?.phone || 'N/A'
+                }
             })
+            
+            // Set waiting timeout
+            const waitingTimeout = setTimeout(() => {
+                if (rideStep === 'waiting') {
+                    setError('Driver response timeout. Please try another driver.')
+                    setRideStep('drivers')
+                    setSelectedDriver(null)
+                    setRide(null)
+                }
+            }, 60000) // 60 seconds for driver response
             
             setRideStep('waiting')
             
         } catch (error) {
             console.error('Error booking ride:', error)
-            alert('Failed to book ride. Please try again.')
+            
+            // Clear any timeouts
+            if (bookingTimeout) {
+                clearTimeout(bookingTimeout)
+                setBookingTimeout(null)
+            }
+            
+            // Enhanced error messages based on error type
+            let errorMessage = 'Failed to book ride. Please try again.'
+            
+            if (error.response) {
+                switch (error.response.status) {
+                    case 400:
+                        errorMessage = 'Invalid booking details. Please check your information.'
+                        break
+                    case 401:
+                        errorMessage = 'Authentication required. Please login again.'
+                        break
+                    case 404:
+                        errorMessage = 'Driver not found. Please select another driver.'
+                        break
+                    case 500:
+                        errorMessage = 'Server error. Please try again later.'
+                        break
+                    default:
+                        errorMessage = `Booking failed: ${error.response.data?.message || 'Unknown error'}`
+                }
+            } else if (error.code === 'ECONNABORTED') {
+                errorMessage = 'Request timeout. Please check your connection and try again.'
+            } else if (error.message.includes('Network')) {
+                errorMessage = 'Network error. Please check your internet connection.'
+            }
+            
+            setError(errorMessage)
             setRideStep('drivers')
             setSelectedDriver(null)
             setRide(null)
+        } finally {
+            setLoading(false)
         }
         
         // Set a timeout for booking confirmation
@@ -436,6 +613,44 @@ const Home = () => {
         socket.emit('message', { rideId: ride._id, message })
         setMessages(prev => [...prev, message])
         setNewMessage('')
+    }
+
+    // Notification system
+    const addNotification = (message, type = 'info', duration = 5000) => {
+        const id = Date.now()
+        const notification = { id, message, type, timestamp: new Date() }
+        
+        setNotifications(prev => [...prev, notification])
+        
+        // Auto remove after duration
+        setTimeout(() => {
+            setNotifications(prev => prev.filter(n => n.id !== id))
+        }, duration)
+    }
+
+    const removeNotification = (id) => {
+        setNotifications(prev => prev.filter(n => n.id !== id))
+    }
+
+    // Enhanced error handler
+    const handleError = (error, context = '') => {
+        console.error(`Error in ${context}:`, error)
+        
+        let message = 'Something went wrong. Please try again.'
+        if (error.message) {
+            message = error.message
+        } else if (error.response?.data?.message) {
+            message = error.response.data.message
+        }
+        
+        addNotification(message, 'error')
+        setError(message)
+    }
+
+    // Success handler
+    const handleSuccess = (message) => {
+        addNotification(message, 'success')
+        setError(null)
     }
 
     // Complete ride
@@ -479,6 +694,61 @@ const Home = () => {
 
     return (
         <div className='h-screen relative overflow-hidden bg-gray-100'>
+            {/* Notifications */}
+            {notifications.length > 0 && (
+                <div className='absolute top-4 right-4 z-50 space-y-2'>
+                    {notifications.map(notification => (
+                        <div
+                            key={notification.id}
+                            className={`max-w-sm p-4 rounded-lg shadow-lg transform transition-all duration-300 ${
+                                notification.type === 'error' ? 'bg-red-500 text-white' :
+                                notification.type === 'success' ? 'bg-green-500 text-white' :
+                                notification.type === 'warning' ? 'bg-yellow-500 text-black' :
+                                'bg-blue-500 text-white'
+                            }`}
+                        >
+                            <div className='flex items-center justify-between'>
+                                <div className='flex items-center space-x-2'>
+                                    <i className={`${
+                                        notification.type === 'error' ? 'ri-error-warning-line' :
+                                        notification.type === 'success' ? 'ri-check-line' :
+                                        notification.type === 'warning' ? 'ri-alert-line' :
+                                        'ri-information-line'
+                                    }`}></i>
+                                    <span className='text-sm font-medium'>{notification.message}</span>
+                                </div>
+                                <button
+                                    onClick={() => removeNotification(notification.id)}
+                                    className='ml-2 text-white hover:text-gray-200'
+                                >
+                                    <i className="ri-close-line"></i>
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Network Status */}
+            {networkStatus === 'offline' && (
+                <div className='absolute top-4 left-4 right-4 z-50 bg-red-500 text-white p-3 rounded-lg shadow-lg'>
+                    <div className='flex items-center justify-center space-x-2'>
+                        <i className="ri-wifi-off-line"></i>
+                        <span className='font-medium'>You are offline. Some features may not work.</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Loading Overlay */}
+            {loading && (
+                <div className='absolute inset-0 z-40 bg-black bg-opacity-30 flex items-center justify-center'>
+                    <div className='bg-white p-6 rounded-lg shadow-lg flex items-center space-x-3'>
+                        <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-300 border-t-blue-500"></div>
+                        <span className='text-gray-700 font-medium'>Loading...</span>
+                    </div>
+                </div>
+            )}
+
             {/* Map */}
             <div className='absolute inset-0 z-0'>
                 <MapContainer 
@@ -668,11 +938,25 @@ const Home = () => {
                                                 </div>
                                             </div>
                                             <div className='text-right'>
-                                                <p className='font-bold'>₹{vehicle.price || vehicle.baseFare}</p>
+                                                <div className='flex items-center gap-1 justify-end mb-1'>
+                                                    <p className='font-bold text-lg'>₹{vehicle.price || vehicle.baseFare}</p>
+                                                    {vehicle.surge && (
+                                                        <span className='text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full'>
+                                                            {vehicle.surgeMultiplier}x
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {vehicle.originalPrice && vehicle.price > vehicle.originalPrice && (
+                                                    <p className={`text-xs line-through ${
+                                                        selectedVehicle === vehicle.id ? 'text-gray-400' : 'text-gray-400'
+                                                    }`}>
+                                                        ₹{vehicle.originalPrice}
+                                                    </p>
+                                                )}
                                                 <p className={`text-xs ${
                                                     selectedVehicle === vehicle.id ? 'text-gray-300' : 'text-gray-500'
                                                 }`}>
-                                                    Est. fare
+                                                    ~{vehicle.estimatedTime || duration} mins
                                                 </p>
                                             </div>
                                         </div>

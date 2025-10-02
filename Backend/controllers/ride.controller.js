@@ -159,14 +159,64 @@ module.exports.endRide = async (req, res) => {
     try {
         const ride = await rideService.endRide({ rideId, captain: req.captain });
 
-        sendMessageToSocketId(ride.user.socketId, {
-            event: 'ride-ended',
-            data: ride
-        })
+        // Calculate and update earnings
+        const EarningsService = require('../services/earnings.service');
+        
+        try {
+            // Calculate ride earnings
+            const earningsData = await EarningsService.calculateRideEarnings(ride);
+            
+            // Update captain earnings
+            const updatedEarnings = await EarningsService.updateCaptainEarnings(
+                ride.captain._id, 
+                earningsData
+            );
 
+            // Send ride completion notification with earnings
+            sendMessageToSocketId(ride.user.socketId, {
+                event: 'ride-ended',
+                data: {
+                    ...ride.toObject(),
+                    earningsCalculated: true
+                }
+            });
 
+            // Send earnings update to captain
+            if (ride.captain.socketId) {
+                sendMessageToSocketId(ride.captain.socketId, {
+                    event: 'earnings-updated',
+                    data: {
+                        rideId: ride._id,
+                        earnings: earningsData,
+                        updatedStats: updatedEarnings.updatedStats,
+                        dailyStats: updatedEarnings.dailyStats
+                    }
+                });
+            }
 
-        return res.status(200).json(ride);
+            console.log(`Ride ${rideId} completed. Captain earned: ₹${earningsData.totalEarnings}`);
+
+            return res.status(200).json({
+                ride,
+                earnings: earningsData,
+                updatedStats: updatedEarnings.updatedStats
+            });
+
+        } catch (earningsError) {
+            console.error('Error calculating earnings:', earningsError);
+            
+            // Still send basic ride completion even if earnings calculation fails
+            sendMessageToSocketId(ride.user.socketId, {
+                event: 'ride-ended',
+                data: ride
+            });
+
+            return res.status(200).json({
+                ride,
+                earningsError: 'Could not calculate earnings automatically'
+            });
+        }
+
     } catch (err) {
         return res.status(500).json({ message: err.message });
     } s
