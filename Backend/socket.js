@@ -56,11 +56,15 @@ function initializeSocket(server) {
                         status: 'accepted'
                     });
                     
+                    // Get the updated ride with OTP
+                    const updatedRide = await require('./models/ride.model').findById(rideId).populate('user').select('+otp');
+                    
                     // Notify user that ride was accepted
-                    if (ride && ride.user && ride.user.socketId) {
-                        io.to(ride.user.socketId).emit('ride-confirmed', {
-                            ...ride.toObject(),
-                            captain: await require('./models/captain.model').findById(captainId)
+                    if (updatedRide && updatedRide.user && updatedRide.user.socketId) {
+                        const captain = await require('./models/captain.model').findById(captainId);
+                        io.to(updatedRide.user.socketId).emit('ride-confirmed', {
+                            ...updatedRide.toObject(),
+                            captain: captain
                         });
                     }
                 } else {

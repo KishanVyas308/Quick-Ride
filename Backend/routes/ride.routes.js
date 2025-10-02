@@ -33,6 +33,12 @@ router.get('/start-ride',
     rideController.startRide
 )
 
+router.post('/resend-otp',
+    authMiddleware.authUser,
+    body('rideId').isMongoId().withMessage('Invalid ride id'),
+    rideController.resendOtp
+)
+
 router.post('/end-ride',
     authMiddleware.authCaptain,
     body('rideId').isMongoId().withMessage('Invalid ride id'),

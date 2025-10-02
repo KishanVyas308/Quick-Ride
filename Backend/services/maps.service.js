@@ -8,7 +8,7 @@ module.exports.getAddressCoordinate = async (address) => {
     try {
         const response = await axios.get(url, {
             headers: {
-                'User-Agent': 'uber-clone-app'
+                'User-Agent': 'quick-ride-app'
             }
         });
         
@@ -80,7 +80,7 @@ module.exports.getAutoCompleteSuggestions = async (input) => {
     try {
         const response = await axios.get(url, {
             headers: {
-                'User-Agent': 'uber-clone-app'
+                'User-Agent': 'quick-ride-app'
             },
             timeout: 5000 // 5 second timeout
         });

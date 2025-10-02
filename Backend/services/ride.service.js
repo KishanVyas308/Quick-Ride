@@ -70,7 +70,8 @@ module.exports.createRide = async ({
         city,
         vehicleType,
         otp: getOtp(6),
-        fare: fare[ vehicleType ]
+        fare: fare[ vehicleType ],
+        estimatedFare: fare[ vehicleType ]
     };
 
     // If specific captain is selected, assign them
@@ -134,8 +135,14 @@ module.exports.startRide = async ({ rideId, otp, captain }) => {
         throw new Error('Ride not accepted');
     }
 
-    if (ride.otp !== otp) {
-        throw new Error('Invalid OTP');
+    console.log('Comparing OTPs:', { provided: otp, stored: ride.otp, type_provided: typeof otp, type_stored: typeof ride.otp });
+    
+    // Convert both to strings for comparison to avoid type issues
+    const providedOtpStr = String(otp).trim();
+    const storedOtpStr = String(ride.otp).trim();
+    
+    if (storedOtpStr !== providedOtpStr) {
+        throw new Error(`Invalid OTP. Provided: "${providedOtpStr}", Expected: "${storedOtpStr}"`);
     }
 
     await rideModel.findOneAndUpdate({
@@ -165,12 +172,15 @@ module.exports.endRide = async ({ rideId, captain }) => {
         throw new Error('Ride not ongoing');
     }
 
-    await rideModel.findOneAndUpdate({
+    const updatedRide = await rideModel.findOneAndUpdate({
         _id: rideId
     }, {
-        status: 'completed'
-    })
+        status: 'completed',
+        completedAt: new Date()
+    }, { new: true }).populate('user').populate('captain').select('+otp');
 
-    return ride;
+    return updatedRide;
 }
+
+module.exports.getOtp = getOtp;
 

@@ -29,8 +29,30 @@ module.exports.createRide = async (req, res) => {
 
         const rideWithUser = await rideModel.findOne({ _id: ride._id }).populate('user').select('+otp');
         
+        // Create version without OTP for captains (security)
+        const rideForCaptains = {
+            ...rideWithUser.toObject(),
+            otp: undefined
+        };
+        
         // Send response with OTP
-        res.status(201).json(rideWithUser);
+        // Send different response to rider and captain
+        // Rider gets full ride info including OTP
+        // Captain gets ride info without OTP (for security)
+        const riderResponse = {
+            message: 'Ride created successfully',
+            ride: ride
+        };
+
+        const captainResponse = {
+            message: 'Ride created successfully',
+            ride: {
+                ...ride.toObject(),
+                otp: undefined // Remove OTP from captain's view
+            }
+        };
+
+        res.status(201).json(riderResponse);
 
         // If a specific captain was selected, send request directly to them
         if (captainId) {
@@ -53,7 +75,7 @@ module.exports.createRide = async (req, res) => {
             captainsInRadius.map(captain => {
                 sendMessageToSocketId(captain.socketId, {
                     event: 'new-ride',
-                    data: rideWithUser
+                    data: rideForCaptains
                 })
             });
         }
@@ -148,6 +170,47 @@ module.exports.startRide = async (req, res) => {
     }
 }
 
+module.exports.resendOtp = async (req, res) => {
+    const { rideId } = req.body;
+    const userId = req.user._id;
+
+    try {
+        // Find the ride and verify it belongs to the user
+        const ride = await rideModel.findById(rideId);
+        
+        if (!ride) {
+            return res.status(404).json({ message: 'Ride not found' });
+        }
+
+        if (ride.user.toString() !== userId.toString()) {
+            return res.status(403).json({ message: 'Unauthorized' });
+        }
+
+        if (ride.status !== 'accepted') {
+            return res.status(400).json({ message: 'OTP can only be resent for accepted rides' });
+        }
+
+        // Generate new OTP
+        const newOtp = rideService.getOtp(6);
+        
+        console.log('Generating new OTP:', newOtp);
+        
+        // Update ride with new OTP
+        const updatedRide = await rideModel.findByIdAndUpdate(rideId, { otp: newOtp }, { new: true });
+        
+        console.log('Updated ride with new OTP:', updatedRide.otp);
+
+        res.json({ 
+            message: 'OTP resent successfully', 
+            otp: newOtp 
+        });
+
+    } catch (err) {
+        console.log(err);
+        return res.status(500).json({ message: err.message });
+    }
+};
+
 module.exports.endRide = async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -157,14 +220,18 @@ module.exports.endRide = async (req, res) => {
     const { rideId } = req.body;
 
     try {
+        console.log('Ending ride:', rideId, 'for captain:', req.captain._id);
         const ride = await rideService.endRide({ rideId, captain: req.captain });
+        console.log('Ride ended successfully:', ride.status, 'fare:', ride.fare);
 
         // Calculate and update earnings
         const EarningsService = require('../services/earnings.service');
         
         try {
             // Calculate ride earnings
+            console.log('Calculating earnings for ride:', ride._id, 'fare:', ride.fare);
             const earningsData = await EarningsService.calculateRideEarnings(ride);
+            console.log('Earnings calculated:', earningsData);
             
             // Update captain earnings
             const updatedEarnings = await EarningsService.updateCaptainEarnings(

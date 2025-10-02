@@ -4,11 +4,19 @@ const captainModel = require('../models/captain.model');
 class EarningsService {
     // Calculate earnings for a completed ride
     static async calculateRideEarnings(ride) {
+        console.log('calculateRideEarnings called with ride:', { 
+            id: ride._id, 
+            status: ride.status, 
+            fare: ride.fare 
+        });
+        
         if (!ride || ride.status !== 'completed') {
+            console.error('Invalid ride for earnings calculation:', ride?.status);
             throw new Error('Invalid ride for earnings calculation');
         }
 
         const baseFare = ride.fare || 0;
+        console.log('Base fare for calculation:', baseFare);
         const platformCommission = 0.15; // 15% platform commission
         const driverEarnings = Math.round(baseFare * (1 - platformCommission));
         const commissionAmount = baseFare - driverEarnings;
