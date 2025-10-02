@@ -318,7 +318,9 @@ const CaptainSignup = () => {
     <div className='py-5 px-5 h-screen flex flex-col justify-between overflow-y-auto'>
       <div>
         <div className="flex items-center mb-6">
-          <img className='w-20 mr-3' src="https://www.svgrepo.com/show/505031/uber-driver.svg" alt="" />
+          <div className='w-20 h-20 mr-3 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center text-white font-bold text-2xl shadow-lg'>
+            QR
+          </div>
           <div>
             <h1 className="text-2xl font-bold">Become a Captain</h1>
             <p className="text-gray-600 text-sm">Start earning with us today!</p>

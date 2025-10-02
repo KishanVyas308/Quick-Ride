@@ -111,7 +111,7 @@ textarea:focus {
   outline-offset: 2px;
 }
 
-/* Uber-like glass morphism */
+/* Quick Ride glass morphism */
 .glass-morphism {
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(10px);

@@ -16,8 +16,8 @@ const RideBooking = ({
     // Vehicle types with pricing
     const vehicleTypes = [
         {
-            id: 'uber-go',
-            name: 'UberGo',
+            id: 'quick-ride-go',
+            name: 'Quick Go',
             description: 'Affordable, everyday rides',
             capacity: 4,
             icon: '🚗',
@@ -26,8 +26,8 @@ const RideBooking = ({
             perMinRate: 2
         },
         {
-            id: 'uber-premier',
-            name: 'Premier',
+            id: 'quick-ride-premier',
+            name: 'Quick Premier',
             description: 'Comfortable sedans, top-quality drivers',
             capacity: 4,
             icon: '🚙',
@@ -36,8 +36,8 @@ const RideBooking = ({
             perMinRate: 3
         },
         {
-            id: 'uber-xl',
-            name: 'UberXL',
+            id: 'quick-ride-xl',
+            name: 'Quick XL',
             description: 'Spacious SUVs for up to 6 people',
             capacity: 6,
             icon: '🚐',

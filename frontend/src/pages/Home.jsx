@@ -46,7 +46,7 @@ function MapClickHandler({ onMapClick, selectionMode }) {
                     const response = await axios.get(
                         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
                         {
-                            headers: { 'User-Agent': 'uber-clone-app' }
+                            headers: { 'User-Agent': 'quick-ride-app' }
                         }
                     );
                     
@@ -98,6 +98,7 @@ const Home = () => {
     const [loadingDrivers, setLoadingDrivers] = useState(false)
     const [distance, setDistance] = useState(0)
     const [duration, setDuration] = useState(0)
+    const [otpResendCooldown, setOtpResendCooldown] = useState(0)
     const [vehicleTypesWithPricing, setVehicleTypesWithPricing] = useState(baseVehicleTypes)
     const [driverCounts, setDriverCounts] = useState({ moto: 0, auto: 0, car: 0 })
     
@@ -187,8 +188,22 @@ const Home = () => {
             
             // Listen for ride confirmation
             socket.on('ride-confirmed', (rideData) => {
+                console.log('Ride confirmed with data:', rideData)
                 setRide(rideData)
                 setRideStep('accepted')
+                // Show success notification when OTP is available
+                if (rideData?.otp) {
+                    handleSuccess(`🎉 Driver Accepted! Your OTP: ${rideData.otp} - Share with driver to start trip!`)
+                    
+                    // Optional: Add a brief flash effect or sound notification here
+                    // You could also scroll to show the OTP section
+                    setTimeout(() => {
+                        const otpSection = document.querySelector('.otp-display')
+                        if (otpSection) {
+                            otpSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                        }
+                    }, 500)
+                }
             })
             
             // Listen for ride rejection
@@ -219,8 +234,10 @@ const Home = () => {
             
             // Listen for trip ended by driver
             socket.on('trip-ended', (data) => {
+                console.log('Trip ended by driver:', data)
                 setRideStep('completed')
-                alert('Trip completed! Thank you for riding with us.')
+                const fareAmount = ride?.fare || ride?.estimatedFare || 'N/A'
+                handleSuccess(`🎉 Trip completed! Total fare: ₹${fareAmount}. Thank you for riding with us!`)
             })
             
             // Listen for messages
@@ -674,6 +691,41 @@ const Home = () => {
         }
     }
 
+    // Resend OTP
+    const handleResendOtp = async () => {
+        if (!ride?._id || otpResendCooldown > 0) return
+        
+        try {
+            const response = await axios.post(`${import.meta.env.VITE_BASE_URL}/rides/resend-otp`, {
+                rideId: ride._id
+            }, {
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`
+                }
+            })
+            
+            // Update ride with new OTP
+            setRide(prev => ({ ...prev, otp: response.data.otp }))
+            handleSuccess('New OTP sent successfully!')
+            
+            // Set cooldown for 30 seconds
+            setOtpResendCooldown(30)
+            const interval = setInterval(() => {
+                setOtpResendCooldown(prev => {
+                    if (prev <= 1) {
+                        clearInterval(interval)
+                        return 0
+                    }
+                    return prev - 1
+                })
+            }, 1000)
+            
+        } catch (error) {
+            console.error('Error resending OTP:', error)
+            handleError('Failed to resend OTP. Please try again.')
+        }
+    }
+
     // Reset to initial state
     const resetRide = () => {
         setPickupLocation(null)
@@ -693,35 +745,47 @@ const Home = () => {
     }
 
     return (
-        <div className='h-screen relative overflow-hidden bg-gray-100'>
-            {/* Notifications */}
+        <div className='h-screen relative overflow-hidden bg-gradient-to-br from-blue-50 via-white to-green-50'>
+            {/* Enhanced Notifications */}
             {notifications.length > 0 && (
-                <div className='absolute top-4 right-4 z-50 space-y-2'>
+                <div className='absolute top-4 right-4 z-50 space-y-2 max-w-xs'>
                     {notifications.map(notification => (
                         <div
                             key={notification.id}
-                            className={`max-w-sm p-4 rounded-lg shadow-lg transform transition-all duration-300 ${
-                                notification.type === 'error' ? 'bg-red-500 text-white' :
-                                notification.type === 'success' ? 'bg-green-500 text-white' :
-                                notification.type === 'warning' ? 'bg-yellow-500 text-black' :
-                                'bg-blue-500 text-white'
+                            className={`p-4 rounded-xl shadow-xl transform transition-all duration-300 backdrop-blur-sm ${
+                                notification.type === 'error' ? 'bg-red-500 text-white border-2 border-red-300' :
+                                notification.type === 'success' ? 'bg-green-500 text-white border-2 border-green-300' :
+                                notification.type === 'warning' ? 'bg-yellow-500 text-black border-2 border-yellow-300' :
+                                'bg-blue-500 text-white border-2 border-blue-300'
                             }`}
                         >
-                            <div className='flex items-center justify-between'>
-                                <div className='flex items-center space-x-2'>
-                                    <i className={`${
-                                        notification.type === 'error' ? 'ri-error-warning-line' :
-                                        notification.type === 'success' ? 'ri-check-line' :
-                                        notification.type === 'warning' ? 'ri-alert-line' :
-                                        'ri-information-line'
-                                    }`}></i>
-                                    <span className='text-sm font-medium'>{notification.message}</span>
+                            <div className='flex items-start justify-between'>
+                                <div className='flex items-start space-x-3'>
+                                    <div className={`p-1 rounded-full ${
+                                        notification.type === 'error' ? 'bg-red-600' :
+                                        notification.type === 'success' ? 'bg-green-600' :
+                                        notification.type === 'warning' ? 'bg-yellow-600' :
+                                        'bg-blue-600'
+                                    }`}>
+                                        <i className={`text-sm ${
+                                            notification.type === 'error' ? 'ri-error-warning-line' :
+                                            notification.type === 'success' ? 'ri-check-line' :
+                                            notification.type === 'warning' ? 'ri-alert-line' :
+                                            'ri-information-line'
+                                        }`}></i>
+                                    </div>
+                                    <div className='flex-1'>
+                                        <span className='text-sm font-medium block'>{notification.message}</span>
+                                        <span className='text-xs opacity-75 mt-1 block'>
+                                            {notification.timestamp.toLocaleTimeString()}
+                                        </span>
+                                    </div>
                                 </div>
                                 <button
                                     onClick={() => removeNotification(notification.id)}
-                                    className='ml-2 text-white hover:text-gray-200'
+                                    className='ml-2 p-1 rounded hover:bg-white hover:bg-opacity-20 transition-colors'
                                 >
-                                    <i className="ri-close-line"></i>
+                                    <i className="ri-close-line text-sm"></i>
                                 </button>
                             </div>
                         </div>
@@ -796,25 +860,55 @@ const Home = () => {
                 </MapContainer>
             </div>
             
-            {/* Header */}
-            <div className='absolute top-4 left-4 right-4 z-20 flex justify-between items-center'>
-                <img 
-                    className='w-16 bg-white p-2 rounded-lg shadow-lg' 
-                    src="https://upload.wikimedia.org/wikipedia/commons/c/cc/Uber_logo_2018.png" 
-                    alt="Uber" 
-                />
-                <button 
-                    onClick={resetRide}
-                    className='bg-white p-3 rounded-full shadow-lg hover:bg-gray-50'
-                >
-                    <i className="ri-refresh-line text-xl text-gray-700"></i>
-                </button>
+            {/* Enhanced Header */}
+            <div className='absolute top-4 left-4 right-4 z-20'>
+                <div className='bg-white rounded-2xl shadow-xl backdrop-blur-sm bg-opacity-95 p-4'>
+                    <div className='flex justify-between items-center'>
+                        <div className='flex items-center gap-3'>
+                            <div className='w-12 h-12 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl shadow-lg flex items-center justify-center text-white font-bold text-lg'>
+                                QR
+                            </div>
+                            <div>
+                                <h1 className='font-bold text-lg text-gray-800'>Quick Ride</h1>
+                                <p className='text-sm text-gray-600'>
+                                    {user?.fullname?.firstname ? `Welcome back, ${user.fullname.firstname}!` : 'Where to today?'}
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div className='flex items-center gap-3'>
+                            {/* Network Status Indicator */}
+                            <div className={`w-3 h-3 rounded-full ${
+                                networkStatus === 'online' ? 'bg-green-400' : 'bg-red-400'
+                            }`} title={`Status: ${networkStatus}`}></div>
+                            
+                            {/* Refresh Button */}
+                            <button 
+                                onClick={resetRide}
+                                className='bg-gradient-to-r from-gray-100 to-gray-200 p-3 rounded-xl shadow-md hover:shadow-lg hover:from-gray-200 hover:to-gray-300 transition-all duration-300'
+                                title="Reset and start over"
+                            >
+                                <i className="ri-refresh-line text-xl text-gray-700"></i>
+                            </button>
+                            
+                            {/* User Profile Button */}
+                            <div className='w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl flex items-center justify-center shadow-md'>
+                                <i className="ri-user-line text-white"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* Main UI based on step */}
             {rideStep === 'selecting' && (
-                <div className='absolute bottom-0 left-0 right-0 z-20 bg-white rounded-t-3xl shadow-2xl p-6'>
-                    <h2 className='text-2xl font-bold mb-6'>Book a Ride</h2>
+                <div className='absolute bottom-0 left-0 right-0 z-20 bg-white rounded-t-3xl shadow-2xl backdrop-blur-sm bg-opacity-98 p-6 border-t-4 border-blue-500'>
+                    <div className='flex items-center gap-3 mb-6'>
+                        <div className='w-10 h-10 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center'>
+                            <i className="ri-map-pin-line text-white text-lg"></i>
+                        </div>
+                        <h2 className='text-2xl font-bold text-gray-800'>Book Your Ride</h2>
+                    </div>
                     
                     {/* Selection mode toggle */}
                     <div className='flex mb-6 bg-gray-100 rounded-lg p-1'>
@@ -1109,9 +1203,16 @@ const Home = () => {
                         {ride?.otp && (
                             <div className='bg-white bg-opacity-20 rounded-xl p-3 mb-2'>
                                 <div className='flex items-center justify-between'>
-                                    <div>
+                                    <div className='flex-1'>
                                         <p className='text-sm opacity-90'>Share this OTP with driver</p>
                                         <p className='text-2xl font-bold font-mono tracking-wider'>{ride.otp}</p>
+                                        <button 
+                                            onClick={handleResendOtp}
+                                            disabled={otpResendCooldown > 0}
+                                            className='text-xs bg-white bg-opacity-30 px-2 py-1 rounded mt-1 hover:bg-opacity-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed'
+                                        >
+                                            {otpResendCooldown > 0 ? `Resend in ${otpResendCooldown}s` : 'Resend OTP'}
+                                        </button>
                                     </div>
                                     <div className='text-right'>
                                         <p className='text-xs opacity-75'>Trip ID</p>
@@ -1211,6 +1312,24 @@ const Home = () => {
                         <h2 className='text-xl font-bold mb-2 text-green-600'>Ride Accepted! 🎉</h2>
                         <p className='text-gray-600 mb-4'>Your driver is on the way</p>
                         
+                        {/* Prominent OTP Display - Show First */}
+                        {ride?.otp && (
+                            <div className='otp-display bg-gradient-to-r from-green-400 to-blue-500 rounded-xl p-4 mb-4 text-white shadow-lg border-2 border-yellow-300 animate-pulse'>
+                                <div className='text-center'>
+                                    <p className='text-sm opacity-90 mb-1'>🔐 Your Ride OTP</p>
+                                    <p className='text-4xl font-bold font-mono tracking-wider mb-2 drop-shadow-lg'>{ride.otp}</p>
+                                    <p className='text-sm opacity-90 font-medium'>📱 Share this code with your driver to start the trip</p>
+                                    <button 
+                                        onClick={handleResendOtp}
+                                        disabled={otpResendCooldown > 0}
+                                        className='mt-2 text-xs bg-white bg-opacity-20 hover:bg-opacity-30 px-3 py-1 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+                                    >
+                                        {otpResendCooldown > 0 ? `Resend in ${otpResendCooldown}s` : 'Resend OTP'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        
                         {ride && ride.captain && (
                             <div className='bg-gray-50 rounded-lg p-4 mb-4'>
                                 <h3 className='font-semibold mb-2'>Driver Details</h3>
@@ -1220,12 +1339,7 @@ const Home = () => {
                             </div>
                         )}
                         
-                        {ride?.otp && (
-                            <div className='bg-blue-50 rounded-lg p-4 mb-4'>
-                                <p className='text-sm text-blue-600 mb-1'>Your OTP</p>
-                                <p className='text-2xl font-bold text-blue-700 font-mono'>{ride.otp}</p>
-                            </div>
-                        )}
+
                         
                         <button
                             onClick={() => setRideStep('chatting')}
@@ -1258,8 +1372,19 @@ const Home = () => {
                         
                         {ride?.otp && (
                             <div className='bg-yellow-50 rounded-lg p-4 mb-4'>
-                                <p className='text-sm text-yellow-600 mb-1'>Share this OTP with driver</p>
-                                <p className='text-2xl font-bold text-yellow-700 font-mono'>{ride.otp}</p>
+                                <div className='flex items-center justify-between'>
+                                    <div>
+                                        <p className='text-sm text-yellow-600 mb-1'>Share this OTP with driver</p>
+                                        <p className='text-2xl font-bold text-yellow-700 font-mono'>{ride.otp}</p>
+                                    </div>
+                                    <button 
+                                        onClick={handleResendOtp}
+                                        disabled={otpResendCooldown > 0}
+                                        className='text-xs bg-yellow-100 hover:bg-yellow-200 px-3 py-1 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+                                    >
+                                        {otpResendCooldown > 0 ? `${otpResendCooldown}s` : 'Resend'}
+                                    </button>
+                                </div>
                             </div>
                         )}
                         
@@ -1341,7 +1466,7 @@ const Home = () => {
                         <div className='space-y-3 mb-6 text-left bg-gray-50 p-4 rounded-lg'>
                             <div className='flex justify-between'>
                                 <span>Ride fare:</span>
-                                <span className='font-medium'>₹150</span>
+                                <span className='font-medium'>₹{ride?.fare || ride?.estimatedFare || 'Calculating...'}</span>
                             </div>
                             <div className='flex justify-between text-sm text-gray-600'>
                                 <span>From: {pickupLocation?.address}</span>

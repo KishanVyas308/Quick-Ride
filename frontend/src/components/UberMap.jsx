@@ -53,7 +53,7 @@ function LocationSelector({ onLocationSelect, mode }) {
                         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`,
                         {
                             headers: {
-                                'User-Agent': 'uber-clone-app'
+                                'User-Agent': 'quick-ride-app'
                             }
                         }
                     );
@@ -99,7 +99,7 @@ function FitBounds({ pickupLocation, destinationLocation }) {
     return null;
 }
 
-const UberMap = ({ 
+const QuickRideMap = ({ 
     pickupLocation, 
     destinationLocation, 
     currentLocation, 
@@ -270,4 +270,4 @@ const UberMap = ({
     );
 };
 
-export default UberMap;
+export default QuickRideMap;

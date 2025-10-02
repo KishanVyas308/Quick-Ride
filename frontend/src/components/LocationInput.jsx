@@ -69,7 +69,7 @@ const LocationInput = ({
                     `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(suggestion)}&limit=1`,
                     {
                         headers: {
-                            'User-Agent': 'uber-clone-app'
+                            'User-Agent': 'quick-ride-app'
                         }
                     }
                 )
@@ -128,7 +128,7 @@ const LocationInput = ({
                             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1`,
                             {
                                 headers: {
-                                    'User-Agent': 'uber-clone-app'
+                                    'User-Agent': 'quick-ride-app'
                                 }
                             }
                         )
