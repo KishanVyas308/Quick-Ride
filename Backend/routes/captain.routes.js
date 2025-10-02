@@ -33,5 +33,9 @@ router.get('/logout', authMiddleware.authCaptain, captainController.logoutCaptai
 
 router.get('/available', captainController.getAvailableDrivers)
 
+router.patch('/status', authMiddleware.authCaptain, captainController.updateCaptainStatus)
+
+router.get('/all', captainController.getAllCaptains)
+
 
 module.exports = router;

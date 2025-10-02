@@ -60,6 +60,10 @@ module.exports.loginCaptain = async (req, res, next) => {
         return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    // Set captain status to active when they log in
+    await captainModel.findByIdAndUpdate(captain._id, { status: 'active' });
+    captain.status = 'active';
+
     const token = captain.generateAuthToken();
 
     res.cookie('token', token);
@@ -73,6 +77,9 @@ module.exports.getCaptainProfile = async (req, res, next) => {
 
 module.exports.logoutCaptain = async (req, res, next) => {
     const token = req.cookies.token || req.headers.authorization?.split(' ')[ 1 ];
+
+    // Set captain status to inactive when they log out
+    await captainModel.findByIdAndUpdate(req.captain._id, { status: 'inactive' });
 
     await blackListTokenModel.create({ token });
 
@@ -107,5 +114,37 @@ module.exports.getAvailableDrivers = async (req, res, next) => {
     } catch (error) {
         console.error('Error fetching drivers:', error);
         res.status(500).json({ message: 'Error fetching drivers', error: error.message });
+    }
+}
+
+module.exports.updateCaptainStatus = async (req, res, next) => {
+    try {
+        const { status } = req.body;
+        
+        if (!['active', 'inactive'].includes(status)) {
+            return res.status(400).json({ message: 'Invalid status. Must be active or inactive' });
+        }
+
+        await captainModel.findByIdAndUpdate(req.captain._id, { status });
+        
+        res.status(200).json({ message: `Status updated to ${status}` });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating status', error: error.message });
+    }
+}
+
+// Debug route to list all captains
+module.exports.getAllCaptains = async (req, res, next) => {
+    try {
+        const captains = await captainModel.find({}).select('-password');
+        console.log('All captains in DB:', captains.map(c => ({
+            name: c.fullname.firstname,
+            city: c.city,
+            status: c.status,
+            vehicleType: c.vehicle.vehicleType
+        })));
+        res.status(200).json({ captains });
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching captains', error: error.message });
     }
 }
