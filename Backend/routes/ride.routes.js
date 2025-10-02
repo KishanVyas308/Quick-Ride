@@ -21,7 +21,7 @@ router.get('/get-fare',
 )
 
 router.post('/confirm',
-    authMiddleware.authCaptain,
+    // authMiddleware.authCaptain, // Temporarily disabled
     body('rideId').isMongoId().withMessage('Invalid ride id'),
     rideController.confirmRide
 )

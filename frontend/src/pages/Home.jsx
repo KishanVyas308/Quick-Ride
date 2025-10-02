@@ -132,10 +132,22 @@ const Home = () => {
                 setRideStep('chatting')
             })
             
+            // Listen for ride rejection
+            socket.on('ride-rejected', (data) => {
+                alert('Driver declined your ride request. Please try selecting another driver.')
+                setRideStep('drivers')
+            })
+            
             // Listen for messages
             socket.on('message', (message) => {
                 setMessages(prev => [...prev, message])
             })
+
+            return () => {
+                socket.off('ride-confirmed')
+                socket.off('ride-rejected')
+                socket.off('message')
+            }
         }
     }, [user, socket])
 

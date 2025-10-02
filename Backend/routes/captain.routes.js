@@ -37,5 +37,7 @@ router.patch('/status', authMiddleware.authCaptain, captainController.updateCapt
 
 router.get('/all', captainController.getAllCaptains)
 
+router.get('/debug-token', captainController.debugToken)
+
 
 module.exports = router;

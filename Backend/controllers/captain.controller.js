@@ -138,7 +138,9 @@ module.exports.getAllCaptains = async (req, res, next) => {
     try {
         const captains = await captainModel.find({}).select('-password');
         console.log('All captains in DB:', captains.map(c => ({
+            id: c._id,
             name: c.fullname.firstname,
+            email: c.email,
             city: c.city,
             status: c.status,
             vehicleType: c.vehicle.vehicleType
@@ -146,5 +148,35 @@ module.exports.getAllCaptains = async (req, res, next) => {
         res.status(200).json({ captains });
     } catch (error) {
         res.status(500).json({ message: 'Error fetching captains', error: error.message });
+    }
+}
+
+// Debug route to test token
+module.exports.debugToken = async (req, res, next) => {
+    try {
+        const token = req.cookies.token || req.headers.authorization?.split(' ')[ 1 ];
+        console.log('Debug - Raw token:', token);
+        
+        if (token) {
+            const decoded = require('jsonwebtoken').verify(token, process.env.JWT_SECRET);
+            console.log('Debug - Decoded:', decoded);
+            
+            const captain = await captainModel.findById(decoded._id);
+            console.log('Debug - Captain found:', captain ? 'Yes' : 'No');
+            
+            res.status(200).json({ 
+                decoded, 
+                captain: captain ? {
+                    id: captain._id,
+                    name: captain.fullname.firstname,
+                    email: captain.email
+                } : null 
+            });
+        } else {
+            res.status(400).json({ message: 'No token provided' });
+        }
+    } catch (error) {
+        console.log('Debug token error:', error);
+        res.status(500).json({ message: 'Token debug error', error: error.message });
     }
 }

@@ -42,32 +42,39 @@ function initializeSocket(server) {
             });
         });
 
-        // Handle ride requests to specific drivers
-        socket.on('ride-request', (data) => {
-            const { rideId, captainId, pickup, destination, vehicleType } = data;
-            
-            // Send ride request to specific captain
-            io.emit('ride-request-to-captain', {
-                rideId,
-                captainId,
-                pickup,
-                destination,
-                vehicleType,
-                requesterId: socket.id
-            });
-        });
-
         // Handle ride acceptance/rejection by captain
-        socket.on('ride-response', (data) => {
+        socket.on('ride-response', async (data) => {
             const { rideId, accepted, captainId } = data;
             
-            // Send response back to user
-            io.emit('ride-response-to-user', {
-                rideId,
-                accepted,
-                captainId,
-                responderId: socket.id
-            });
+            try {
+                const ride = await require('./models/ride.model').findById(rideId).populate('user');
+                
+                if (accepted) {
+                    // Update ride status and captain
+                    await require('./models/ride.model').findByIdAndUpdate(rideId, {
+                        captain: captainId,
+                        status: 'accepted'
+                    });
+                    
+                    // Notify user that ride was accepted
+                    if (ride && ride.user && ride.user.socketId) {
+                        io.to(ride.user.socketId).emit('ride-confirmed', {
+                            ...ride.toObject(),
+                            captain: await require('./models/captain.model').findById(captainId)
+                        });
+                    }
+                } else {
+                    // Notify user that ride was rejected
+                    if (ride && ride.user && ride.user.socketId) {
+                        io.to(ride.user.socketId).emit('ride-rejected', {
+                            rideId,
+                            message: 'Driver declined your ride request'
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error handling ride response:', error);
+            }
         });
 
         // Handle chat messages

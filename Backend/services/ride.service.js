@@ -91,6 +91,17 @@ module.exports.confirmRide = async ({
         throw new Error('Ride id is required');
     }
 
+    if (!captain || !captain._id) {
+        throw new Error('Captain is required');
+    }
+
+    // Find the ride first to check if it exists
+    const existingRide = await rideModel.findById(rideId);
+    if (!existingRide) {
+        throw new Error('Ride not found');
+    }
+
+    // Update the ride status and captain
     await rideModel.findOneAndUpdate({
         _id: rideId
     }, {
@@ -101,10 +112,6 @@ module.exports.confirmRide = async ({
     const ride = await rideModel.findOne({
         _id: rideId
     }).populate('user').populate('captain').select('+otp');
-
-    if (!ride) {
-        throw new Error('Ride not found');
-    }
 
     return ride;
 

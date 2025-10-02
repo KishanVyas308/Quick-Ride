@@ -3,6 +3,7 @@ const { validationResult } = require('express-validator');
 const mapService = require('../services/maps.service');
 const { sendMessageToSocketId } = require('../socket');
 const rideModel = require('../models/ride.model');
+const captainModel = require('../models/captain.model');
 
 
 module.exports.createRide = async (req, res) => {
@@ -27,14 +28,31 @@ module.exports.createRide = async (req, res) => {
 
         const rideWithUser = await rideModel.findOne({ _id: ride._id }).populate('user');
 
-        captainsInRadius.map(captain => {
-
-            sendMessageToSocketId(captain.socketId, {
-                event: 'new-ride',
-                data: rideWithUser
-            })
-
-        })
+        // If a specific captain was selected, send request directly to them
+        if (captainId) {
+            const selectedCaptain = await require('../models/captain.model').findById(captainId);
+            if (selectedCaptain && selectedCaptain.socketId) {
+                sendMessageToSocketId(selectedCaptain.socketId, {
+                    event: 'ride-request-to-captain',
+                    data: {
+                        rideId: ride._id,
+                        captainId: captainId,
+                        pickup,
+                        destination,
+                        vehicleType,
+                        user: rideWithUser.user
+                    }
+                });
+            }
+        } else {
+            // Original logic for broadcasting to captains in radius
+            captainsInRadius.map(captain => {
+                sendMessageToSocketId(captain.socketId, {
+                    event: 'new-ride',
+                    data: rideWithUser
+                })
+            });
+        }
 
     } catch (err) {
 
@@ -66,20 +84,38 @@ module.exports.confirmRide = async (req, res) => {
         return res.status(400).json({ errors: errors.array() });
     }
 
-    const { rideId } = req.body;
+    const { rideId, captainId } = req.body;
 
     try {
-        const ride = await rideService.confirmRide({ rideId, captain: req.captain });
+        console.log('Confirming ride:', { rideId, captainId });
+        
+        // If no captainId provided, get it from the ride
+        let actualCaptainId = captainId;
+        if (!actualCaptainId) {
+            const ride = await rideModel.findById(rideId);
+            if (ride && ride.captain) {
+                actualCaptainId = ride.captain;
+            } else {
+                return res.status(400).json({ message: 'Captain ID required' });
+            }
+        }
 
-        sendMessageToSocketId(ride.user.socketId, {
+        // Get captain details
+        const captain = await captainModel.findById(actualCaptainId);
+        if (!captain) {
+            return res.status(404).json({ message: 'Captain not found' });
+        }
+
+        const confirmedRide = await rideService.confirmRide({ rideId, captain });
+
+        sendMessageToSocketId(confirmedRide.user.socketId, {
             event: 'ride-confirmed',
-            data: ride
+            data: confirmedRide
         })
 
-        return res.status(200).json(ride);
+        return res.status(200).json(confirmedRide);
     } catch (err) {
-
-        console.log(err);
+        console.log('Confirm ride error:', err);
         return res.status(500).json({ message: err.message });
     }
 }
