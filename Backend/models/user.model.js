@@ -29,6 +29,13 @@ const userSchema = new mongoose.Schema({
     socketId: {
         type: String,
     },
+    status: {
+        type: String,
+        enum: ['active', 'inactive', 'banned'],
+        default: 'active'
+    },
+}, {
+    timestamps: true
 })
 
 userSchema.methods.generateAuthToken = function () {

@@ -13,11 +13,16 @@ import CaptainProtectWrapper from './pages/CaptainProtectWrapper'
 import CaptainLogout from './pages/CaptainLogout'
 import Riding from './pages/Riding'
 import CaptainRiding from './pages/CaptainRiding'
+import AdminLogin from './pages/AdminLogin'
+import AdminDashboard from './pages/AdminDashboard'
+import AdminProtectWrapper from './pages/AdminProtectWrapper'
+import AdminProvider from './context/AdminContext'
 import 'remixicon/fonts/remixicon.css'
 
 const App = () => {
 
   return (
+    <AdminProvider>
     <div>
       <Routes>
         <Route path='/' element={<Start />} />
@@ -50,8 +55,15 @@ const App = () => {
             <CaptainLogout />
           </CaptainProtectWrapper>
         } />
+        <Route path='/admin/login' element={<AdminLogin />} />
+        <Route path='/admin/dashboard' element={
+          <AdminProtectWrapper>
+            <AdminDashboard />
+          </AdminProtectWrapper>
+        } />
       </Routes>
     </div>
+    </AdminProvider>
   )
 }
 

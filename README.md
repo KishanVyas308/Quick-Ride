@@ -4,6 +4,7 @@ Quick Ride is a full-stack ride-sharing application inspired by Uber, rebranded 
 
 ## Features
 
+### Core Features
 - **User & Captain Authentication**: Secure signup/login for both roles
 - **OTP Verification**: Riders receive an OTP for ride verification; captains must enter the correct OTP to start the ride
 - **Dynamic Fare Calculation**: Fares are calculated based on distance and vehicle type
@@ -12,6 +13,15 @@ Quick Ride is a full-stack ride-sharing application inspired by Uber, rebranded 
 - **Map Integration**: Live tracking and route display using Leaflet
 - **Resend OTP with Cooldown**: Riders can resend OTP with a cooldown to prevent abuse
 - **Full Quick Ride Branding**: All UI and technical identifiers reflect "Quick Ride"
+
+### Admin Features
+- **Comprehensive Admin Panel**: Role-based access control with Super Admin, Admin, and Moderator roles
+- **Dashboard Analytics**: Real-time statistics, system health monitoring, and activity feeds
+- **User Management**: View, search, and manage user accounts with status controls
+- **Captain Management**: Driver verification, performance tracking, and status management
+- **Ride Management**: Real-time ride monitoring with emergency cancellation capabilities
+- **Financial Reports**: Revenue analytics, commission tracking, and performance metrics
+- **Security Features**: JWT authentication, permission-based access, and audit trails
 
 ## Tech Stack
 
@@ -70,8 +80,22 @@ frontend/
    ```
 
 ### Usage
+
+#### For Users and Captains
 - Open the frontend URL (usually `http://localhost:5173`) in your browser.
 - Register as a user or captain and start booking or accepting rides!
+
+#### For Administrators
+1. **Create Admin Account**: Run `npm run seed-admin` in the backend directory to create the initial super admin
+2. **Access Admin Panel**: Navigate to `/admin/login` from the main site
+3. **Default Credentials**:
+   - Email: `admin@quickride.com`
+   - Password: `admin123456`
+4. **Admin Features**:
+   - Dashboard with real-time analytics
+   - User and Captain management
+   - Ride monitoring and control
+   - Financial reports and insights
 
 ## Customization
 - **Branding**: All Uber references have been replaced with "Quick Ride". Update logos and colors in `frontend/public/` and `frontend/src/` as needed.
